@@ -182,7 +182,7 @@
     width: 132%;
     height: 132%;
     will-change: transform;
-    animation: water-drift 40s ease-in-out infinite alternate;
+    animation: water-drift var(--water-dur, 40s) ease-in-out infinite alternate;
   }
 
   @keyframes water-drift {
@@ -615,6 +615,176 @@
   }
   .toast-retry:active { transform: scale(0.94); }
 
+  /* --- Settings --------------------------------------------------------
+     The sheet is a fixed overlay, not an inline expansion. That is a
+     deliberate constraint: an inline panel would push the artwork down and
+     invalidate the fitted constants in the .art sizing formula below. */
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .icon-button {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--chip);
+    color: var(--on-1);
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    transition: transform 0.18s var(--ease), background-color 0.2s var(--ease);
+  }
+  .icon-button:active { transform: scale(0.9); }
+  .icon-button svg { display: block; width: 20px; height: 20px; }
+
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    background: rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    transition: opacity 0.3s var(--ease);
+  }
+  .sheet-backdrop.show { opacity: 1; }
+
+  .sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 901;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 520px;
+    padding: 10px 22px calc(env(safe-area-inset-bottom) + 22px);
+    border-radius: 24px 24px 0 0;
+    background: var(--bg);
+    color: var(--on-1);
+    box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.28);
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    backdrop-filter: saturate(180%) blur(28px);
+    transform: translateY(100%);
+    transition: transform 0.42s var(--ease);
+  }
+  .sheet.show { transform: translateY(0); }
+
+  .sheet[hidden],
+  .sheet-backdrop[hidden] { display: none; }
+
+  .sheet-grabber {
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 14px;
+    border-radius: 999px;
+    background: var(--on-3);
+    opacity: 0.5;
+  }
+
+  .sheet-title {
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 18px;
+  }
+
+  .setting-row + .setting-row { margin-top: 22px; }
+
+  .setting-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .setting-head label {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .setting-value {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--tint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .setting-note {
+    font-size: 12px;
+    color: var(--on-3);
+    margin-top: 8px;
+  }
+
+  /* Born at 44pt: this one is new code, so it should not repeat the
+     mistake the clamp() floors caused elsewhere. */
+  .setting-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    height: 44px;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .setting-slider::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--track-bg);
+  }
+  .setting-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 26px;
+    height: 26px;
+    margin-top: -10px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+    transition: transform 0.18s var(--ease);
+  }
+  .setting-slider:active::-webkit-slider-thumb { transform: scale(1.15); }
+  .setting-slider::-moz-range-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--track-bg);
+  }
+  .setting-slider::-moz-range-thumb {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+  }
+
+  .sheet-done {
+    display: block;
+    width: 100%;
+    height: 50px;
+    margin-top: 22px;
+    border: none;
+    border-radius: 16px;
+    background: var(--tint);
+    color: var(--chip-ink);
+    font-family: inherit;
+    font-size: 17px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.18s var(--ease), opacity 0.2s var(--ease);
+  }
+  .sheet-done:active { transform: scale(0.98); opacity: 0.9; }
+
   /* --- Touch targets ---------------------------------------------------
      Visual size and hit area are deliberately decoupled. Four controls read
      as smaller than Apple's 44pt minimum, so an invisible ::after extends
@@ -748,10 +918,23 @@
       <span class="brand-name">Amou Music</span>
     </div>
 
-    <button id="pilotBadge" class="pilot-badge" type="button" aria-label="网络状态及输出设备">
-      <span class="pilot-led" aria-hidden="true"></span>
-      <span id="deviceName" class="pilot-device-name">连接中…</span>
-    </button>
+    <div class="topbar-right">
+      <button id="pilotBadge" class="pilot-badge" type="button" aria-label="网络状态及输出设备">
+        <span class="pilot-led" aria-hidden="true"></span>
+        <span id="deviceName" class="pilot-device-name">连接中…</span>
+      </button>
+
+      <button id="settingsBtn" class="icon-button" type="button" aria-label="设置" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+          <line x1="4" y1="7" x2="20" y2="7"/>
+          <line x1="4" y1="12" x2="20" y2="12"/>
+          <line x1="4" y1="17" x2="20" y2="17"/>
+          <circle cx="9.5" cy="7" r="2.1"/>
+          <circle cx="15" cy="12" r="2.1"/>
+          <circle cx="7.5" cy="17" r="2.1"/>
+        </svg>
+      </button>
+    </div>
   </header>
 
   <section class="art" role="img" aria-label="当前播放内容，暂无封面">
@@ -830,6 +1013,25 @@
     <p>Windows 全局媒体控制 · 免密局域网访问</p>
   </footer>
 </main>
+
+<div class="sheet-backdrop" id="sheetBackdrop" hidden></div>
+
+<section class="sheet" id="settingsSheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+  <div class="sheet-grabber" aria-hidden="true"></div>
+  <h2 class="sheet-title" id="settingsTitle">设置</h2>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="bgSpeed">背景流速</label>
+      <output class="setting-value" id="bgSpeedValue" for="bgSpeed">100%</output>
+    </div>
+    <input type="range" id="bgSpeed" class="setting-slider" min="0" max="200" step="5" value="100"
+           aria-describedby="bgSpeedNote">
+    <p class="setting-note" id="bgSpeedNote">拖到最左即静止背景</p>
+  </div>
+
+  <button class="sheet-done" id="settingsDone" type="button">完成</button>
+</section>
 
 <div class="console-toast" id="consoleToast" role="alert">
   <span id="toastText">服务连接异常</span>
@@ -1256,7 +1458,7 @@
   coordinator.init();
 })();
 </script>
-</body>
+
 <script>
 /* Keep the iOS status-bar text legible. 'default' renders dark glyphs (light
    canvas); 'black-translucent' renders light glyphs (dark canvas). Follows
@@ -1290,5 +1492,113 @@
   else if (mq.addListener) mq.addListener(apply);
 })();
 </script>
+<script>
+/* Settings: background flow speed.
+   Kept in its own block so the main UIController/Store layer stays untouched.
+   Speed multiplies every period in the water chain; 0 parks the background. */
+(function () {
+  'use strict';
+
+  var KEY = 'amou.settings.bgSpeed';
+  var DEF = 1;
+  /* Base periods, matching the values authored into the markup at 100%. */
+  var BASE = { dx: 18, dy: 23, drift: 40 };
+
+  var svg = document.querySelector('.water-svg');
+  var anims = svg ? svg.querySelectorAll('animate') : [];
+  var btn = document.getElementById('settingsBtn');
+  var sheet = document.getElementById('settingsSheet');
+  var backdrop = document.getElementById('sheetBackdrop');
+  var doneBtn = document.getElementById('settingsDone');
+  var slider = document.getElementById('bgSpeed');
+  var readout = document.getElementById('bgSpeedValue');
+  var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var timer = null;
+
+  function readSpeed() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      var n = raw === null ? NaN : Number(raw);
+      return isFinite(n) && n >= 0 ? n : DEF;
+    } catch (e) { return DEF; }
+  }
+
+  function writeSpeed(n) {
+    try { localStorage.setItem(KEY, String(n)); } catch (e) { /* private mode */ }
+  }
+
+  function apply(speed) {
+    if (!svg) return;
+    var still = motion.matches;
+    var stopped = still || speed <= 0;
+
+    if (stopped) {
+      svg.pauseAnimations();
+    } else {
+      svg.unpauseAnimations();
+      if (anims[0]) anims[0].setAttribute('dur', (BASE.dx / speed) + 's');
+      if (anims[1]) anims[1].setAttribute('dur', (BASE.dy / speed) + 's');
+      svg.style.setProperty('--water-dur', (BASE.drift / speed) + 's');
+    }
+    svg.style.animationPlayState = stopped ? 'paused' : '';
+  }
+
+  function sync() {
+    var speed = readSpeed();
+    if (slider) slider.value = String(speed * 100);
+    if (readout) readout.textContent = Math.round(speed * 100) + '%';
+    apply(speed);
+  }
+
+  if (slider) {
+    slider.addEventListener('input', function () {
+      var speed = Number(slider.value) / 100;
+      if (readout) readout.textContent = Math.round(speed * 100) + '%';
+      apply(speed);
+      clearTimeout(timer);
+      timer = setTimeout(function () { writeSpeed(speed); }, 200);
+    });
+  }
+
+  function open() {
+    if (!sheet || !backdrop) return;
+    sheet.hidden = false;
+    backdrop.hidden = false;
+    /* Force a reflow so the transition has a start state to animate from. */
+    void sheet.offsetWidth;
+    sheet.classList.add('show');
+    backdrop.classList.add('show');
+    if (slider) slider.focus();
+  }
+
+  function close() {
+    if (!sheet || !backdrop) return;
+    sheet.classList.remove('show');
+    backdrop.classList.remove('show');
+    setTimeout(function () {
+      sheet.hidden = true;
+      backdrop.hidden = true;
+    }, 420);
+    if (btn) btn.focus();
+  }
+
+  if (btn) btn.addEventListener('click', open);
+  if (doneBtn) doneBtn.addEventListener('click', close);
+  if (backdrop) backdrop.addEventListener('click', close);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sheet && !sheet.hidden) close();
+  });
+
+  if (motion.addEventListener) {
+    motion.addEventListener('change', function () { apply(readSpeed()); });
+  } else if (motion.addListener) {
+    motion.addListener(function () { apply(readSpeed()); });
+  }
+
+  sync();
+})();
+</script>
+
 </body>
 </html>
