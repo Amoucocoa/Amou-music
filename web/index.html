@@ -876,6 +876,19 @@
      ring around the whole panel would be noise. Controls inside keep theirs. */
   .sheet:focus { outline: none; }
 
+  /* GSAP writes transform every frame; a CSS transition on top of that would
+     re-interpolate each update and smear the motion. Same for :active
+     scaling, which GSAP replaces with pointer-driven quickTo tweens. */
+  .gsap-driven .sheet,
+  .gsap-driven .sheet-backdrop { transition: none; }
+  .gsap-driven .icon-button:active,
+  .gsap-driven .glyph:active,
+  .gsap-driven .mute-button:active,
+  .gsap-driven .preset-key:active,
+  .gsap-driven .preset-step:active,
+  .gsap-driven .seg:active,
+  .gsap-driven .sheet-done:active { transform: none; }
+
   button:focus-visible,
   input:focus-visible {
     outline: 2px solid var(--tint);
@@ -932,6 +945,9 @@
 </style>
 </head>
 <body>
+
+<!-- Vendored locally, not a CDN: the page must open with no internet. -->
+<script src="gsap.min.js"></script>
 
 <div class="water-layer" aria-hidden="true">
   <svg class="water-svg" viewBox="0 0 1200 1200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
@@ -1611,6 +1627,122 @@ window.AmuTheme = (function () {
 })();
 </script>
 <script>
+/* Motion layer, built on GSAP core.
+   Everything here is progressive enhancement: if gsap.min.js failed to load,
+   the <gsap-driven> class is never added, the CSS transitions stay in charge
+   and the page behaves exactly as before. */
+(function () {
+  'use strict';
+
+  var g = window.gsap;
+  if (!g) return;
+
+  var doc = document.documentElement;
+  doc.classList.add('gsap-driven');
+  g.defaults({ duration: 0.5, ease: 'power3.out' });
+
+  var sheet = document.getElementById('settingsSheet');
+  var backdrop = document.getElementById('sheetBackdrop');
+  var rows = document.querySelectorAll('.setting-row');
+  var volNum = document.getElementById('volumeNum');
+  var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var mm = g.matchMedia();
+  var played = false;
+
+  /* 1. Entrance. Runs once; a user who turns reduced motion off later should
+        not get the whole page re-animated under them. */
+  mm.add('(prefers-reduced-motion: no-preference)', function () {
+    if (played) return;
+    played = true;
+    g.timeline({ defaults: { ease: 'power3.out' } })
+      .from('.topbar', { y: -14, autoAlpha: 0, duration: 0.5 })
+      .from('.art', { y: 24, autoAlpha: 0, duration: 0.65 }, '-=0.32')
+      .from('.controls > *', { y: 18, autoAlpha: 0, duration: 0.5, stagger: 0.06 }, '-=0.42')
+      .from('.footnote', { autoAlpha: 0, duration: 0.4 }, '-=0.28');
+  });
+
+  /* 2. Volume readout roll. Observed rather than hooked into the controller so
+        the main UIController layer stays untouched. */
+  if (volNum && window.MutationObserver) {
+    var last = null;
+    new MutationObserver(function () {
+      var txt = volNum.textContent;
+      if (txt === last) return;
+      var first = last === null;
+      last = txt;
+      if (first || motion.matches) return;
+      g.fromTo(volNum,
+        { y: -9, autoAlpha: 0.25 },
+        { y: 0, autoAlpha: 1, duration: 0.3, ease: 'power2.out', overwrite: 'auto' });
+    }).observe(volNum, { childList: true, characterData: true, subtree: true });
+  }
+
+  /* 3. Press feedback. quickTo reuses one tween per element instead of
+        building a new one per press, and the release carries a little
+        overshoot so it reads as sprung rather than mechanical. */
+  mm.add('(prefers-reduced-motion: no-preference)', function () {
+    var nodes = document.querySelectorAll(
+      '.glyph, .mute-button, .preset-key, .preset-step, .icon-button, .seg, .sheet-done');
+    for (var i = 0; i < nodes.length; i++) {
+      (function (el) {
+        /* scaleX/scaleY, never the combined `scale` shorthand: quickTo re-seeds
+           its tween on every call, and GSAP refuses to reset a merged
+           transform property that way ("scale not eligible for reset"). */
+        var opt = { duration: 0.12, ease: 'power3.out' };
+        var back = { duration: 0.4, ease: 'back.out(2.4)' };
+        var downX = g.quickTo(el, 'scaleX', opt), downY = g.quickTo(el, 'scaleY', opt);
+        var upX = g.quickTo(el, 'scaleX', back), upY = g.quickTo(el, 'scaleY', back);
+        var release = function () { upX(1); upY(1); };
+        el.addEventListener('pointerdown', function () { downX(0.9); downY(0.9); });
+        el.addEventListener('pointerup', release);
+        el.addEventListener('pointercancel', release);
+        el.addEventListener('pointerleave', release);
+      })(nodes[i]);
+    }
+  });
+
+  /* 4. Sheet. A timeline so the backdrop, the panel and the rows move as one
+        gesture instead of three transitions that merely overlap. */
+  window.AmuAnim = {
+    sheet: function (open, done) {
+      if (!sheet || !backdrop) { if (done) done(); return; }
+      var finish = function () { if (done) done(); };
+      var still = motion.matches;
+
+      /* The stylesheet's `transform: translateY(100%)` is a PERCENTAGE, and
+         GSAP resolves it against the element height into a baked PIXEL `y` on
+         first parse — leaving yPercent at 0. Animating yPercent alone then
+         zeroes the wrong component and the panel never moves. So both `y` and
+         `yPercent` are set explicitly from the measured height here. */
+      var h = sheet.offsetHeight;
+
+      if (open) {
+        sheet.hidden = false;
+        backdrop.hidden = false;
+        var tl = g.timeline({ onComplete: finish });
+        tl.set(backdrop, { autoAlpha: 0 })
+          .set(sheet, { yPercent: 0, y: h });
+        if (still) {
+          tl.set(backdrop, { autoAlpha: 1 }, 0).set(sheet, { y: 0 }, 0);
+        } else {
+          tl.to(backdrop, { autoAlpha: 1, duration: 0.3, ease: 'power2.out' }, 0)
+            .to(sheet, { y: 0, duration: 0.46, ease: 'power4.out' }, 0)
+            .from(rows, { y: 14, autoAlpha: 0, duration: 0.32, stagger: 0.055, ease: 'power2.out' }, 0.14);
+        }
+      } else {
+        var tl2 = g.timeline({ onComplete: finish });
+        if (still) {
+          tl2.set(sheet, { y: h }, 0).set(backdrop, { autoAlpha: 0 }, 0);
+        } else {
+          tl2.to(sheet, { y: h, duration: 0.34, ease: 'power3.in' }, 0)
+            .to(backdrop, { autoAlpha: 0, duration: 0.3, ease: 'power2.in' }, 0.06);
+        }
+      }
+    }
+  };
+})();
+</script>
+<script>
 /* Settings: background flow speed.
    Kept in its own block so the main UIController/Store layer stays untouched.
    Speed multiplies every period in the water chain; 0 parks the background. */
@@ -1701,24 +1833,35 @@ window.AmuTheme = (function () {
 
   function open() {
     if (!sheet || !backdrop) return;
-    sheet.hidden = false;
-    backdrop.hidden = false;
-    /* Force a reflow so the transition has a start state to animate from. */
-    void sheet.offsetWidth;
-    sheet.classList.add('show');
-    backdrop.classList.add('show');
+    if (window.AmuAnim) {
+      window.AmuAnim.sheet(true);
+    } else {
+      sheet.hidden = false;
+      backdrop.hidden = false;
+      /* Force a reflow so the transition has a start state to animate from. */
+      void sheet.offsetWidth;
+      sheet.classList.add('show');
+      backdrop.classList.add('show');
+    }
     if (sheet) sheet.focus();
   }
 
   function close() {
     if (!sheet || !backdrop) return;
-    sheet.classList.remove('show');
-    backdrop.classList.remove('show');
-    setTimeout(function () {
-      sheet.hidden = true;
-      backdrop.hidden = true;
-    }, 420);
     if (btn) btn.focus();
+    if (window.AmuAnim) {
+      window.AmuAnim.sheet(false, function () {
+        sheet.hidden = true;
+        backdrop.hidden = true;
+      });
+    } else {
+      sheet.classList.remove('show');
+      backdrop.classList.remove('show');
+      setTimeout(function () {
+        sheet.hidden = true;
+        backdrop.hidden = true;
+      }, 420);
+    }
   }
 
   if (btn) btn.addEventListener('click', open);

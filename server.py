@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """HTTP entry point for the Amou Music LAN remote.
 
-Stdlib only -- no web framework. The whole surface is five routes serving one
-self-contained page, so a framework would add dependency surface without buying
-anything.
+Stdlib only -- no web framework. The whole surface is a handful of routes
+serving one page plus its vendored libraries, so a framework would add
+dependency surface without buying anything.
 """
 
 from __future__ import annotations
@@ -20,7 +20,15 @@ from pathlib import Path
 from device import PLAYBACK_ACTIONS, DeviceError, DeviceWorker
 
 BASE_DIR = Path(__file__).resolve().parent
-INDEX_HTML = BASE_DIR / "web" / "index.html"
+WEB_DIR = BASE_DIR / "web"
+INDEX_HTML = WEB_DIR / "index.html"
+
+# Vendored libraries, served from the same directory as the page. This is a
+# fixed whitelist rather than a directory listing: anyone on the LAN can
+# reach this server, and a whitelist cannot be walked out of with ../.
+STATIC_FILES = {
+    "/gsap.min.js": "gsap.min.js",
+}
 
 FIREWALL_RULE_NAME = "Amou Music Remote"
 DEFAULT_PORT = 8765
@@ -94,6 +102,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._fail(500, "页面文件缺失")
         elif route == "/api/state":
             self._device_call(self.worker.state)
+        elif route in STATIC_FILES:
+            try:
+                body = (WEB_DIR / STATIC_FILES[route]).read_bytes()
+            except OSError:
+                self._fail(404, "文件不存在")
+            else:
+                self._send_bytes(200, body, "application/javascript; charset=utf-8")
         else:
             self._fail(404, "接口不存在")
 
