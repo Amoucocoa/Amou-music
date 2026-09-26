@@ -1,0 +1,16 @@
+# Normalize to LF in BOTH the repository and the working tree.
+#
+# Without this, core.autocrlf=true on Windows checks files out as CRLF.
+# That is how web/index.html ended up with mixed endings: written as LF by
+# one tool, rewritten as CRLF by another, then a cross-line regex silently
+# matched nothing (or matched far too much). Pinning the working tree to LF
+# makes line endings a property of the repo instead of the machine.
+* text=auto eol=lf
+
+# Batch is the single exception: cmd.exe still parses CRLF more reliably,
+# and start.bat is the one file that must survive a double-click.
+*.bat text eol=crlf
+
+# Minified vendor blob — never touch its line endings, and keep git from
+# spending time diffing it.
+web/gsap.min.js -diff text eol=lf
