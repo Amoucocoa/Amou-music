@@ -59,7 +59,8 @@
 
     server.py        HTTP 层：路由、参数校验、启动横幅、防火墙
     device.py        设备层：音量/静音/媒体键，单工作线程串行化 COM 访问
-    web/index.html   前端单文件，无构建步骤，不引用任何 CDN
+    web/index.html   前端单文件（HTML+CSS+JS 完整内嵌），无构建步骤，不引用任何 CDN
+    web/gsap.min.js  本地 vendor 的 GSAP 3.15.0（动效），由 server.py 白名单路由供给
     start.bat        首次运行建 venv、装依赖、启动
 
 `device.py` 里所有碰 COM 的调用都被投递到一个专用工作线程。原因是 COM 必须按线程初始化，而且手机拖动音量滑块会产生一串密集请求，串行化能保证句柄一致。
