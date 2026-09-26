@@ -182,7 +182,7 @@
     width: 132%;
     height: 132%;
     will-change: transform;
-    animation: water-drift 104s ease-in-out infinite alternate;
+    animation: water-drift 40s ease-in-out infinite alternate;
   }
 
   @keyframes water-drift {
@@ -706,8 +706,8 @@
       <filter id="amouWater" x="-14%" y="-14%" width="128%" height="128%" color-interpolation-filters="sRGB">
         <feTurbulence type="fractalNoise" baseFrequency="0.0052 0.0071" numOctaves="2" seed="9" result="noise"/>
         <feOffset in="noise" dx="0" dy="0" result="flow">
-          <animate attributeName="dx" values="0;110;210;110;0" dur="52s" repeatCount="indefinite"/>
-          <animate attributeName="dy" values="0;-80;70;95;0" dur="67s" repeatCount="indefinite"/>
+          <animate attributeName="dx" values="0;110;210;110;0" dur="18s" repeatCount="indefinite"/>
+          <animate attributeName="dy" values="0;-80;70;95;0" dur="23s" repeatCount="indefinite"/>
         </feOffset>
         <feDisplacementMap in="SourceGraphic" in2="flow" scale="130" xChannelSelector="R" yChannelSelector="G"/>
       </filter>
