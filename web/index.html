@@ -276,7 +276,7 @@
      keeps it near the reference proportion when height is plentiful. */
   .art {
     position: relative;
-    width: min(100%, 40vh, calc(100dvh - 75cqi - 200px));
+    width: min(100%, 40vh, calc(100dvh - 75cqi - 218px));
     margin: 0 auto;
     aspect-ratio: 1;
     border-radius: var(--r-art);
@@ -422,7 +422,7 @@
     appearance: none;
     flex: 1;
     min-width: 0;
-    height: clamp(28px, 8.7cqi, 42px);
+    height: 44px;
     border: none;
     background: transparent;
     outline: none;
@@ -600,6 +600,34 @@
   }
   .toast-retry:active { transform: scale(0.94); }
 
+  /* --- Touch targets ---------------------------------------------------
+     Visual size and hit area are deliberately decoupled. Four controls read
+     as smaller than Apple's 44pt minimum, so an invisible ::after extends
+     the tappable region without moving a single pixel of the layout.
+     The range input is the exception: <input> cannot host pseudo-elements
+     in most engines, so its own height carries the target while the 5px
+     track stays visually pinned inside it. */
+  .pilot-badge,
+  .mute-button,
+  .preset-key,
+  .preset-step {
+    position: relative;
+  }
+
+  .pilot-badge::after,
+  .mute-button::after,
+  .preset-key::after,
+  .preset-step::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    border-radius: var(--r-pill);
+  }
+
   button:focus-visible,
   input:focus-visible {
     outline: 2px solid var(--tint);
@@ -616,7 +644,7 @@
     .transport,
     .presets     { margin-top: 18px; }
     .footnote    { margin-top: 12px; }
-    .art { width: min(100%, 40vh, calc(100dvh - 75cqi - 95px)); }
+    .art { width: min(100%, 40vh, calc(100dvh - 75cqi - 113px)); }
   }
   /* Two-column player once the window can carry it: artwork on the left,
      controls on the right. The controls column becomes its own query
