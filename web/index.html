@@ -40,10 +40,14 @@
     --orange:    #C97A16;
     --red:       #C8362C;
 
-    --silk-base:  #E9F3ED;
-    --silk-wash:  rgba(112, 190, 154, 0.40);
-    --silk-shade: rgba(18, 66, 48, 0.10);
-    --silk-light: rgba(255, 255, 255, 0.92);
+    /* Water backdrop. Still one emerald hue (~155); light and depth are
+       carried by value. Painted into SVG gradient stops, so these are solid
+       colours and opacity rides on the stops instead. */
+    --water-base:  #E9F3ED;
+    --water-1:     #C9E6D6;
+    --water-2:     #A9D3BE;
+    --water-3:     #0B8A4B;
+    --water-vig:   rgba(22, 74, 56, 0.20);
 
     --r-art:      22px;
     --r-pill:     999px;
@@ -76,10 +80,11 @@
       --orange:    #FFB340;
       --red:       #FF5C4D;
 
-      --silk-base:  #04120D;
-      --silk-wash:  rgba(30, 130, 94, 0.42);
-      --silk-shade: rgba(0, 6, 4, 0.88);
-      --silk-light: rgba(70, 195, 142, 0.16);
+      --water-base:  #04120D;
+      --water-1:     #14523E;
+      --water-2:     #0A3527;
+      --water-3:     #2EE06A;
+      --water-vig:   rgba(0, 7, 4, 0.78);
     }
   }
 
@@ -93,7 +98,7 @@
   html, body {
     min-height: 100%;
     min-height: 100dvh;
-    background: var(--silk-base);
+    background: var(--water-base);
     color: var(--on-1);
     font-family: var(--font);
     font-optical-sizing: auto;
@@ -141,47 +146,57 @@
     border: 0;
   }
 
-  /* --- Ambient backdrop ------------------------------------------------
-     One hue across two counter-drifting layers: a slow field and a faster
-     travelling light pool. The vignette (painted first, i.e. on top) sinks
-     the rim toward the base colour, which is what gives the backdrop its
-     lit-from-within depth. At z-index: -1, so it can never land on the
-     volume readout.                                                     */
-  body::before,
-  body::after {
-    content: '';
+  /* --- Water backdrop ---------------------------------------------------
+     feTurbulence builds a fractal noise field ONCE. feOffset then slides that
+     field — cheap, because the noise is never regenerated — and
+     feDisplacementMap warps the gradient blobs along the sliding field.
+     Translating a smooth noise field is what produces continuous refractive
+     drift rather than a pattern sliding on a conveyor belt.
+
+     A slow CSS transform on the wrapper adds parallax on top. The layer is
+     fixed and oversized, so drift can never expose an edge; it sits at
+     z-index: -1 and therefore can never land on the volume readout.     */
+  .water-layer {
     position: fixed;
+    inset: 0;
     z-index: -1;
+    overflow: hidden;
     pointer-events: none;
-    background-repeat: no-repeat;
+    background: var(--water-base);
   }
 
-  body::before {
-    top: -25%; left: -25%;
-    width: 150%; height: 150%;
-    background-color: var(--silk-base);
-    background-image:
-      radial-gradient(132% 116% at 50% 44%, transparent 34%, var(--silk-shade) 100%),
-      radial-gradient(86% 70% at 30% 26%, var(--silk-wash), transparent 68%);
-    animation: silk-field 68s ease-in-out infinite alternate;
+  /* The displacement map smears the light pools across the whole frame, so a
+     vignette is what keeps the rim dark enough for the text to hold up. */
+  .water-layer::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: radial-gradient(128% 112% at 50% 36%, transparent 28%, var(--water-vig) 100%);
   }
 
-  body::after {
-    top: -35%; left: -35%;
-    width: 170%; height: 170%;
-    background-image:
-      radial-gradient(42% 36% at 46% 30%, var(--silk-light), transparent 66%);
-    animation: silk-light 54s ease-in-out infinite alternate;
+  .water-svg {
+    position: absolute;
+    top: -16%;
+    left: -16%;
+    width: 132%;
+    height: 132%;
+    will-change: transform;
+    animation: water-drift 104s ease-in-out infinite alternate;
   }
 
-  @keyframes silk-field {
+  @keyframes water-drift {
     0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(-2.5%, 2%, 0) scale(1.05); }
+    100% { transform: translate3d(-2.5%, 2.2%, 0) scale(1.07); }
   }
-  @keyframes silk-light {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(4.5%, -4%, 0) scale(1.09); }
-  }
+
+  .water-svg .w-base     { fill: var(--water-base); }
+  .water-svg .s-light    { stop-color: var(--water-1); }
+  .water-svg .s-light-0  { stop-color: var(--water-1); stop-opacity: 0; }
+  .water-svg .s-mid      { stop-color: var(--water-2); }
+  .water-svg .s-mid-0    { stop-color: var(--water-2); stop-opacity: 0; }
+  .water-svg .s-spark    { stop-color: var(--water-3); stop-opacity: 0.5; }
+  .water-svg .s-spark-0  { stop-color: var(--water-3); stop-opacity: 0; }
 
   /* --- Top bar --- */
   .topbar {
@@ -676,8 +691,7 @@
       transition-duration: 0.01ms !important;
       animation-duration: 0.01ms !important;
     }
-    body::before,
-    body::after {
+    .water-svg {
       animation: none !important;
       transform: none !important;
     }
@@ -685,6 +699,42 @@
 </style>
 </head>
 <body>
+
+<div class="water-layer" aria-hidden="true">
+  <svg class="water-svg" viewBox="0 0 1200 1200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <filter id="amouWater" x="-14%" y="-14%" width="128%" height="128%" color-interpolation-filters="sRGB">
+        <feTurbulence type="fractalNoise" baseFrequency="0.0052 0.0071" numOctaves="2" seed="9" result="noise"/>
+        <feOffset in="noise" dx="0" dy="0" result="flow">
+          <animate attributeName="dx" values="0;110;210;110;0" dur="52s" repeatCount="indefinite"/>
+          <animate attributeName="dy" values="0;-80;70;95;0" dur="67s" repeatCount="indefinite"/>
+        </feOffset>
+        <feDisplacementMap in="SourceGraphic" in2="flow" scale="130" xChannelSelector="R" yChannelSelector="G"/>
+      </filter>
+
+      <radialGradient id="wgLight">
+        <stop class="s-light" offset="0%"/>
+        <stop class="s-light-0" offset="100%"/>
+      </radialGradient>
+      <radialGradient id="wgMid">
+        <stop class="s-mid" offset="0%"/>
+        <stop class="s-mid-0" offset="100%"/>
+      </radialGradient>
+      <radialGradient id="wgSpark">
+        <stop class="s-spark" offset="0%"/>
+        <stop class="s-spark-0" offset="100%"/>
+      </radialGradient>
+    </defs>
+
+    <g filter="url(#amouWater)">
+      <rect class="w-base" x="-240" y="-240" width="1680" height="1680"/>
+      <ellipse cx="340" cy="300" rx="430" ry="350" fill="url(#wgLight)"/>
+      <ellipse cx="900" cy="400" rx="390" ry="330" fill="url(#wgMid)"/>
+      <ellipse cx="620" cy="920" rx="500" ry="380" fill="url(#wgLight)"/>
+      <ellipse cx="180" cy="820" rx="300" ry="250" fill="url(#wgSpark)"/>
+    </g>
+  </svg>
+</div>
 
 <main class="app">
   <header class="topbar">
@@ -1217,6 +1267,23 @@
   var mq = window.matchMedia('(prefers-color-scheme: dark)');
   var apply = function () {
     meta.setAttribute('content', mq.matches ? 'black-translucent' : 'default');
+  };
+  apply();
+  if (mq.addEventListener) mq.addEventListener('change', apply);
+  else if (mq.addListener) mq.addListener(apply);
+})();
+</script>
+
+<script>
+/* The water flow is driven by SMIL, which no CSS media query can switch off,
+   so prefers-reduced-motion is honoured by pausing the SVG animation clock
+   instead. The static gradient underneath stays visible either way. */
+(function () {
+  var svg = document.querySelector('.water-svg');
+  if (!svg) return;
+  var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var apply = function () {
+    if (mq.matches) { svg.pauseAnimations(); } else { svg.unpauseAnimations(); }
   };
   apply();
   if (mq.addEventListener) mq.addEventListener('change', apply);
