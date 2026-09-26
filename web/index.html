@@ -200,7 +200,7 @@
     width: 132%;
     height: 132%;
     will-change: transform;
-    animation: water-drift var(--water-dur, 40s) ease-in-out infinite alternate;
+    animation: water-drift 40s ease-in-out infinite alternate;
   }
 
   @keyframes water-drift {
@@ -954,10 +954,9 @@
     <defs>
       <filter id="amouWater" x="-14%" y="-14%" width="128%" height="128%" color-interpolation-filters="sRGB">
         <feTurbulence type="fractalNoise" baseFrequency="0.0052 0.0071" numOctaves="2" seed="9" result="noise"/>
-        <feOffset in="noise" dx="0" dy="0" result="flow">
-          <animate attributeName="dx" values="0;110;210;110;0" dur="18s" repeatCount="indefinite"/>
-          <animate attributeName="dy" values="0;-80;70;95;0" dur="23s" repeatCount="indefinite"/>
-        </feOffset>
+        <!-- dx/dy are driven by GSAP (AmuAnim.water). No SMIL here on purpose:
+             two engines writing the same attributes is a guaranteed race. -->
+        <feOffset in="noise" dx="0" dy="0" result="flow"/>
         <feDisplacementMap in="SourceGraphic" in2="flow" scale="130" xChannelSelector="R" yChannelSelector="G"/>
       </filter>
 
@@ -1611,22 +1610,6 @@ window.AmuTheme = (function () {
 
 
 <script>
-/* The water flow is driven by SMIL, which no CSS media query can switch off,
-   so prefers-reduced-motion is honoured by pausing the SVG animation clock
-   instead. The static gradient underneath stays visible either way. */
-(function () {
-  var svg = document.querySelector('.water-svg');
-  if (!svg) return;
-  var mq = window.matchMedia('(prefers-reduced-motion: reduce)');
-  var apply = function () {
-    if (mq.matches) { svg.pauseAnimations(); } else { svg.unpauseAnimations(); }
-  };
-  apply();
-  if (mq.addEventListener) mq.addEventListener('change', apply);
-  else if (mq.addListener) mq.addListener(apply);
-})();
-</script>
-<script>
 /* Motion layer, built on GSAP core.
    Everything here is progressive enhancement: if gsap.min.js failed to load,
    the <gsap-driven> class is never added, the CSS transitions stay in charge
@@ -1701,9 +1684,49 @@ window.AmuTheme = (function () {
     }
   });
 
-  /* 4. Sheet. A timeline so the backdrop, the panel and the rows move as one
+  /* 4. Water flow. GSAP is now the ONLY writer of the backdrop's motion:
+     dx/dy on the feOffset primitive, plus the layer's own drift transform.
+     Speed is applied through timeScale(), so dragging the slider scales the
+     timeline continuously — re-deriving a `dur` on every input would restart
+     the tween and visibly jump. */
+  var feOffset = document.querySelector('feOffset');
+  var waterSvg = document.querySelector('.water-svg');
+  var waterTweens = [];
+  var waterSpeed = 1;
+
+  if (feOffset) {
+    waterTweens.push(
+      g.to(feOffset, { attr: { dx: 210 }, duration: 9, ease: 'sine.inOut', repeat: -1, yoyo: true }),
+      g.to(feOffset, { attr: { dy: 95 }, duration: 11.5, ease: 'sine.inOut', repeat: -1, yoyo: true })
+    );
+  }
+  if (waterSvg) {
+    waterTweens.push(
+      g.to(waterSvg, { xPercent: -1.8, yPercent: 1.6, scale: 1.05,
+                       duration: 40, ease: 'sine.inOut', repeat: -1, yoyo: true })
+    );
+  }
+
+  function setWater(speed) {
+    waterSpeed = speed;
+    var still = motion.matches;
+    for (var w = 0; w < waterTweens.length; w++) {
+      if (still || speed <= 0) {
+        waterTweens[w].pause();
+      } else {
+        waterTweens[w].timeScale(speed).play();
+      }
+    }
+  }
+
+  var onMotionChange = function () { setWater(waterSpeed); };
+  if (motion.addEventListener) motion.addEventListener('change', onMotionChange);
+  else if (motion.addListener) motion.addListener(onMotionChange);
+
+  /* 5. Sheet. A timeline so the backdrop, the panel and the rows move as one
         gesture instead of three transitions that merely overlap. */
   window.AmuAnim = {
+    water: function (speed) { setWater(speed); },
     sheet: function (open, done) {
       if (!sheet || !backdrop) { if (done) done(); return; }
       var finish = function () { if (done) done(); };
@@ -1751,11 +1774,7 @@ window.AmuTheme = (function () {
 
   var KEY = 'amou.settings.bgSpeed';
   var DEF = 1;
-  /* Base periods, matching the values authored into the markup at 100%. */
-  var BASE = { dx: 18, dy: 23, drift: 40 };
 
-  var svg = document.querySelector('.water-svg');
-  var anims = svg ? svg.querySelectorAll('animate') : [];
   var btn = document.getElementById('settingsBtn');
   var sheet = document.getElementById('settingsSheet');
   var backdrop = document.getElementById('sheetBackdrop');
@@ -1779,20 +1798,12 @@ window.AmuTheme = (function () {
     try { localStorage.setItem(KEY, String(n)); } catch (e) { /* private mode */ }
   }
 
+  /* The motion layer owns the backdrop now. Without GSAP there is nothing to
+     drive (SMIL was removed to avoid two writers on one attribute), so the
+     gradient simply stays static — the CSS keyframe drift still runs because
+     the gsap-driven class is never added. */
   function apply(speed) {
-    if (!svg) return;
-    var still = motion.matches;
-    var stopped = still || speed <= 0;
-
-    if (stopped) {
-      svg.pauseAnimations();
-    } else {
-      svg.unpauseAnimations();
-      if (anims[0]) anims[0].setAttribute('dur', (BASE.dx / speed) + 's');
-      if (anims[1]) anims[1].setAttribute('dur', (BASE.dy / speed) + 's');
-      svg.style.setProperty('--water-dur', (BASE.drift / speed) + 's');
-    }
-    svg.style.animationPlayState = stopped ? 'paused' : '';
+    if (window.AmuAnim) window.AmuAnim.water(speed);
   }
 
   function sync() {
