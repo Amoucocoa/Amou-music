@@ -1,0 +1,6 @@
+# Verified against Python 3.14 on Windows 11 (2026-09-26).
+# Floors rather than hard pins: pycaw reshuffled its API recently
+# (AudioDevice.Activate is gone; AudioDevice.volume_percent replaced it),
+# so staying at or above these avoids silently landing on an old shape.
+pycaw>=20260921
+comtypes>=1.4.17

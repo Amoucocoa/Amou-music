@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#E9F3ED">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#04120D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default" id="statusBarStyle">
+<meta name="apple-mobile-web-app-title" content="Amou Music">
+<title>Amou Music · 局域网播放遥控器</title>
+<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%230B8A4B"><rect x="2" y="4" width="20" height="16" rx="4"/><circle cx="8" cy="12" r="3" fill="%23fff"/><circle cx="16" cy="12" r="3" fill="%23fff"/><path d="M12 9v6" stroke="%23fff" stroke-width="2"/></svg>'>
+<link rel="manifest" href='data:application/manifest+json,{"name":"Amou Music Remote","short_name":"Amou","start_url":"/","display":"standalone","background_color":"%23E9F3ED","theme_color":"%23E9F3ED"}'>
+<style>
+  /* ================================================================
+     Amou Music · iOS Music-style Player
+     No cards. Every control floats directly on the ambient backdrop;
+     hierarchy comes from type scale, glyph size and opacity alone.
+     ================================================================ */
+  :root {
+    color-scheme: light dark;
+
+    /* On-gradient content colours. The backdrop is a moving image, so
+       these are tuned to stay legible across the whole field. */
+    --on-1:      #06120D;
+    --on-2:      rgba(6, 40, 28, 0.62);
+    --on-3:      rgba(6, 40, 28, 0.36);
+    --glyph:     #06120D;
+    --track-bg:  rgba(20, 80, 58, 0.16);
+    --track-fill: rgba(11, 138, 75, 0.85);
+    --hairline:  rgba(20, 80, 58, 0.12);
+    --chip:      rgba(255, 255, 255, 0.55);
+    --chip-ink:  #06120D;
+    --sleeve:    rgba(14, 52, 38, 0.20);
+
+    --tint:      #0B8A4B;
+    --tint-soft: rgba(11, 138, 75, 0.14);
+    --green:     #12A15E;
+    --orange:    #C97A16;
+    --red:       #C8362C;
+
+    --silk-base:  #E9F3ED;
+    --silk-wash:  rgba(112, 190, 154, 0.40);
+    --silk-shade: rgba(18, 66, 48, 0.10);
+    --silk-light: rgba(255, 255, 255, 0.92);
+
+    --r-art:      22px;
+    --r-pill:     999px;
+
+    --ease:       cubic-bezier(0.32, 0.72, 0, 1);
+    --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text",
+            system-ui, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB",
+            "Microsoft YaHei", sans-serif;
+
+    /* Written by UIController.render(); consumed by the fader track. */
+    --fill-pct: 0%;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --on-1:      #FFFFFF;
+      --on-2:      rgba(255, 255, 255, 0.58);
+      --on-3:      rgba(255, 255, 255, 0.34);
+      --glyph:     #FFFFFF;
+      --track-bg:  rgba(255, 255, 255, 0.22);
+      --track-fill: rgba(228, 248, 238, 0.88);
+      --hairline:  rgba(255, 255, 255, 0.14);
+      --chip:      rgba(255, 255, 255, 0.16);
+      --chip-ink:  #FFFFFF;
+      --sleeve:    rgba(0, 10, 7, 0.34);
+
+      --tint:      #2EE06A;
+      --tint-soft: rgba(46, 224, 106, 0.18);
+      --green:     #2EE06A;
+      --orange:    #FFB340;
+      --red:       #FF5C4D;
+
+      --silk-base:  #04120D;
+      --silk-wash:  rgba(30, 130, 94, 0.42);
+      --silk-shade: rgba(0, 6, 4, 0.88);
+      --silk-light: rgba(70, 195, 142, 0.16);
+    }
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html, body {
+    min-height: 100%;
+    min-height: 100dvh;
+    background: var(--silk-base);
+    color: var(--on-1);
+    font-family: var(--font);
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    overscroll-behavior-y: none;
+  }
+
+  body {
+    background: transparent;
+    display: flex;
+    justify-content: center;
+    padding: calc(env(safe-area-inset-top) + 10px) 22px
+             calc(env(safe-area-inset-bottom) + 26px);
+    transition: color 0.3s var(--ease);
+  }
+
+  /* The whole player scales off this container. container-type lets every
+     inner dimension below be expressed in cqi (1% of the app's inline size),
+     so the layout grows with the window and freezes cleanly at the cap —
+     unlike vw, which would keep inflating past it. */
+  .app {
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    container-type: inline-size;
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* --- Ambient backdrop ------------------------------------------------
+     One hue across two counter-drifting layers: a slow field and a faster
+     travelling light pool. The vignette (painted first, i.e. on top) sinks
+     the rim toward the base colour, which is what gives the backdrop its
+     lit-from-within depth. At z-index: -1, so it can never land on the
+     volume readout.                                                     */
+  body::before,
+  body::after {
+    content: '';
+    position: fixed;
+    z-index: -1;
+    pointer-events: none;
+    background-repeat: no-repeat;
+  }
+
+  body::before {
+    top: -25%; left: -25%;
+    width: 150%; height: 150%;
+    background-color: var(--silk-base);
+    background-image:
+      radial-gradient(132% 116% at 50% 44%, transparent 34%, var(--silk-shade) 100%),
+      radial-gradient(86% 70% at 30% 26%, var(--silk-wash), transparent 68%);
+    animation: silk-field 68s ease-in-out infinite alternate;
+  }
+
+  body::after {
+    top: -35%; left: -35%;
+    width: 170%; height: 170%;
+    background-image:
+      radial-gradient(42% 36% at 46% 30%, var(--silk-light), transparent 66%);
+    animation: silk-light 54s ease-in-out infinite alternate;
+  }
+
+  @keyframes silk-field {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(-2.5%, 2%, 0) scale(1.05); }
+  }
+  @keyframes silk-light {
+    0%   { transform: translate3d(0, 0, 0) scale(1); }
+    100% { transform: translate3d(4.5%, -4%, 0) scale(1.09); }
+  }
+
+  /* --- Top bar --- */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: clamp(16px, 4.5cqi, 24px);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: clamp(8px, 2.3cqi, 12px);
+    min-width: 0;
+  }
+
+  .brand-mark {
+    width: clamp(25px, 7.5cqi, 34px);
+    height: clamp(25px, 7.5cqi, 34px);
+    border-radius: 7px;
+    background: var(--tint);
+    color: var(--chip-ink);
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+  }
+
+  .brand-name {
+    font-size: clamp(14px, 4.3cqi, 19px);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  /* className is fully rewritten by render(), so all styling lives here */
+  .pilot-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: clamp(27px, 8cqi, 36px);
+    padding: 0 clamp(10px, 3cqi, 14px);
+    border: none;
+    border-radius: var(--r-pill);
+    background: var(--chip);
+    color: var(--on-2);
+    font-family: inherit;
+    font-size: clamp(11.5px, 3.5cqi, 15px);
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    transition: transform 0.18s var(--ease);
+  }
+  .pilot-badge:active { transform: scale(0.95); }
+
+  .pilot-led {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--on-3);
+    flex-shrink: 0;
+    transition: background-color 0.3s var(--ease);
+  }
+  .pilot-badge.connected .pilot-led { background: var(--green); }
+  .pilot-badge.reconnecting .pilot-led {
+    background: var(--orange);
+    animation: led-breathe 1.4s infinite ease-in-out;
+  }
+  .pilot-badge.offline .pilot-led { background: var(--red); }
+
+  @keyframes led-breathe {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: 0.35; transform: scale(0.82); }
+  }
+
+  .pilot-device-name {
+    max-width: clamp(110px, 34cqi, 180px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* --- Artwork anchor ----------------------------------------------------
+     A placeholder for real cover art. The SMTC integration point: when
+     metadata arrives, swap the vinyl for the album image. -------------- */
+  /* The artwork is the only elastic block, so it absorbs every height
+     conflict. The surrounding chrome has a floor that scales with this
+     container (measured: ~75cqi + 132px) plus 36px of body padding, so cap
+     the artwork by whatever height is genuinely left over. The 40vh term
+     keeps it near the reference proportion when height is plentiful. */
+  .art {
+    position: relative;
+    width: min(100%, 40vh, calc(100dvh - 75cqi - 200px));
+    margin: 0 auto;
+    aspect-ratio: 1;
+    border-radius: var(--r-art);
+    overflow: hidden;
+    background: var(--sleeve);
+    box-shadow:
+      0 18px 40px rgba(0, 0, 0, 0.30),
+      inset 0 0 0 1px var(--hairline);
+  }
+
+  /* Pure-CSS vinyl: grooves, tinted label, spindle hole, and a raking
+     sheen so the disc reads as a physical object rather than a flat circle. */
+  .vinyl {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 66%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background:
+      conic-gradient(from 205deg,
+        rgba(255, 255, 255, 0) 0deg,
+        rgba(255, 255, 255, 0.11) 38deg,
+        rgba(255, 255, 255, 0) 88deg,
+        rgba(255, 255, 255, 0) 360deg),
+      radial-gradient(circle, var(--tint) 0 18%, transparent 18.5%),
+      radial-gradient(circle, #06120D 0 2.5%, transparent 3%),
+      repeating-radial-gradient(circle,
+        rgba(255, 255, 255, 0.05) 0 1px,
+        rgba(0, 0, 0, 0.22) 1px 3px,
+        rgba(255, 255, 255, 0.03) 3px 4px),
+      #0A0F0D;
+    box-shadow:
+      0 16px 36px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+
+
+
+  /* --- Track title block --- */
+  .track-block {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: clamp(13px, 4cqi, 20px);
+    margin-top: clamp(20px, 6.4cqi, 32px);
+  }
+
+  .track-text {
+    min-width: 0;
+  }
+
+  .track-title {
+    font-size: clamp(19px, 6cqi, 30px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .track-artist {
+    font-size: clamp(14px, 4.3cqi, 20px);
+    font-weight: 400;
+    color: var(--on-2);
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mute-button {
+    width: clamp(38px, 11.5cqi, 54px);
+    height: clamp(38px, 11.5cqi, 54px);
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 50%;
+    background: var(--chip);
+    color: var(--on-1);
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    transition: transform 0.18s var(--ease), background-color 0.2s var(--ease),
+                color 0.2s var(--ease);
+  }
+  .mute-button:active { transform: scale(0.9); }
+  .mute-button.active {
+    background: var(--red);
+    color: #fff;
+  }
+
+  /* --- Volume --- */
+  .volume-block {
+    margin-top: clamp(23px, 7.5cqi, 38px);
+  }
+
+  .volume-readout {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 3px;
+    margin-bottom: 4px;
+  }
+
+  .volume-num {
+    font-size: clamp(37px, 11.5cqi, 56px);
+    font-weight: 700;
+    letter-spacing: -0.035em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .volume-unit {
+    font-size: clamp(14px, 4.3cqi, 20px);
+    font-weight: 600;
+    color: var(--on-3);
+  }
+
+  .is-muted .volume-readout,
+  .is-muted .volume-unit { color: var(--on-3); }
+
+  .volume-slider {
+    display: flex;
+    align-items: center;
+    gap: clamp(10px, 3.2cqi, 16px);
+  }
+
+  .speaker {
+    flex-shrink: 0;
+    width: clamp(14px, 4.3cqi, 20px);
+    height: clamp(14px, 4.3cqi, 20px);
+    color: var(--on-2);
+  }
+  .speaker svg { display: block; width: 100%; height: 100%; }
+
+  input[type="range"].fader-input {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    min-width: 0;
+    height: clamp(28px, 8.7cqi, 42px);
+    border: none;
+    background: transparent;
+    outline: none;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  input[type="range"].fader-input::-webkit-slider-runnable-track {
+    height: 5px;
+    border-radius: 3px;
+    background: linear-gradient(to right,
+      var(--track-fill) 0%, var(--track-fill) var(--fill-pct),
+      var(--track-bg) var(--fill-pct), var(--track-bg) 100%);
+  }
+  input[type="range"].fader-input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: clamp(14px, 4.3cqi, 20px);
+    height: clamp(14px, 4.3cqi, 20px);
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--glyph);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    transition: transform 0.18s var(--ease);
+  }
+  input[type="range"].fader-input:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+  }
+
+  input[type="range"].fader-input::-moz-range-track {
+    height: 5px;
+    border-radius: 3px;
+    background: linear-gradient(to right,
+      var(--track-fill) 0%, var(--track-fill) var(--fill-pct),
+      var(--track-bg) var(--fill-pct), var(--track-bg) 100%);
+  }
+  input[type="range"].fader-input::-moz-range-progress {
+    height: 5px;
+    border-radius: 3px;
+    background: transparent;
+  }
+  input[type="range"].fader-input::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border: none;
+    border-radius: 50%;
+    background: var(--glyph);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  }
+
+  /* --- Transport: bare glyphs, no button chrome --- */
+  .transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(40px, 13.3cqi, 70px);
+    margin-top: clamp(23px, 7.5cqi, 38px);
+  }
+
+  .glyph {
+    display: grid;
+    place-items: center;
+    border: none;
+    background: transparent;
+    color: var(--glyph);
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    padding: 8px;
+    border-radius: 50%;
+    transition: transform 0.18s var(--ease), opacity 0.18s var(--ease);
+  }
+  .glyph:active { transform: scale(0.88); opacity: 0.7; }
+  .glyph svg { display: block; }
+
+  .glyph-skip svg {
+    width: clamp(31px, 9.8cqi, 48px);
+    height: clamp(31px, 9.8cqi, 48px);
+  }
+  .glyph-primary svg {
+    width: clamp(42px, 13.3cqi, 68px);
+    height: clamp(42px, 13.3cqi, 68px);
+  }
+
+  /* --- Presets: the muted bottom row --- */
+  .presets {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(5px, 1.7cqi, 9px);
+    margin-top: clamp(23px, 7.5cqi, 38px);
+    flex-wrap: wrap;
+  }
+
+  .preset-key,
+  .preset-step {
+    min-width: clamp(44px, 13.3cqi, 68px);
+    height: clamp(30px, 9.2cqi, 44px);
+    padding: 0 clamp(9px, 2.8cqi, 14px);
+    border: none;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--on-3);
+    font-family: inherit;
+    font-size: clamp(13px, 4cqi, 19px);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    transition: color 0.2s var(--ease), background-color 0.2s var(--ease),
+                transform 0.18s var(--ease);
+  }
+  .preset-key:active,
+  .preset-step:active { transform: scale(0.92); }
+
+  .preset-key.active {
+    color: var(--on-1);
+    font-weight: 600;
+  }
+  .preset-step { color: var(--on-2); }
+
+  .footnote {
+    text-align: center;
+    font-size: clamp(10.5px, 3.2cqi, 15px);
+    line-height: 1.5;
+    color: var(--on-3);
+    margin-top: clamp(18px, 5.8cqi, 29px);
+  }
+
+  /* --- Toast --- */
+  .console-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom) + 20px);
+    z-index: 999;
+    width: min(calc(100% - 44px), 360px);
+    padding: 13px 15px;
+    border-radius: 16px;
+    background: var(--chip);
+    color: var(--chip-ink);
+    font-size: 13.5px;
+    font-weight: 500;
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    backdrop-filter: saturate(180%) blur(24px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, 14px) scale(0.96);
+    transition: opacity 0.25s var(--ease), transform 0.32s var(--ease),
+                visibility 0.25s;
+    pointer-events: none;
+  }
+  .console-toast.show {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0) scale(1);
+    pointer-events: auto;
+  }
+
+  .toast-retry {
+    border: none;
+    border-radius: 9px;
+    background: var(--tint);
+    color: var(--chip-ink);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 7px 14px;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: transform 0.18s var(--ease);
+  }
+  .toast-retry:active { transform: scale(0.94); }
+
+  button:focus-visible,
+  input:focus-visible {
+    outline: 2px solid var(--tint);
+    outline-offset: 3px;
+  }
+
+  /* A short viewport has less height to give away, so the vertical rhythm
+     tightens and the artwork keeps the space it needs. The cap constant
+     drops in step with the recovered height. */
+  @media (min-width: 700px) and (max-height: 920px) {
+    .topbar      { margin-bottom: 12px; }
+    .track-block { margin-top: 16px; }
+    .volume-block,
+    .transport,
+    .presets     { margin-top: 18px; }
+    .footnote    { margin-top: 12px; }
+    .art { width: min(100%, 40vh, calc(100dvh - 75cqi - 95px)); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+    body::before,
+    body::after {
+      animation: none !important;
+      transform: none !important;
+    }
+  }
+</style>
+</head>
+<body>
+
+<main class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/>
+          <path d="M12 7v5l3.5 2"/>
+        </svg>
+      </span>
+      <span class="brand-name">Amou Music</span>
+    </div>
+
+    <button id="pilotBadge" class="pilot-badge" type="button" aria-label="网络状态及输出设备">
+      <span class="pilot-led" aria-hidden="true"></span>
+      <span id="deviceName" class="pilot-device-name">连接中…</span>
+    </button>
+  </header>
+
+  <section class="art" role="img" aria-label="当前播放内容，暂无封面">
+    <div class="vinyl" aria-hidden="true"></div>
+  </section>
+
+  <div class="track-block">
+    <div class="track-text">
+      <div class="track-title" id="trackTitle">全局系统音频会话</div>
+      <div class="track-artist" id="trackArtist">连接中…</div>
+    </div>
+
+    <button id="cutBtn" class="mute-button" type="button" role="switch" aria-checked="false">
+      <svg id="cutIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+      </svg>
+      <span id="cutText" class="sr-only">静音</span>
+    </button>
+  </div>
+
+  <div class="volume-block" id="faderModule">
+    <div class="volume-readout">
+      <span class="volume-num" id="volumeNum">--</span>
+      <span class="volume-unit">%</span>
+    </div>
+
+    <div class="volume-slider">
+      <span class="speaker" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 5 6.5 9H3.5a1 1 0 0 0-1 1v4a1 1 0 0 0 1 1h3L11 19a1 1 0 0 0 1.6-.8V5.8A1 1 0 0 0 11 5Z"/>
+          <path d="M15.4 9.9a3.1 3.1 0 0 1 0 4.2"/>
+        </svg>
+      </span>
+
+      <label for="faderSlider" class="sr-only">主音量</label>
+      <input type="range" id="faderSlider" class="fader-input" min="0" max="100" step="1" value="0" aria-describedby="volumeNum">
+
+
+    </div>
+  </div>
+
+  <div class="transport" role="group" aria-label="播放控制">
+    <button class="glyph glyph-skip" id="deckPrev" type="button" aria-label="上一首">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+        <polygon points="19 20 9 12 19 4 19 20"></polygon>
+        <rect x="5" y="4" width="2.4" height="16" rx="1.2"></rect>
+      </svg>
+    </button>
+
+    <button class="glyph glyph-primary" id="deckPlay" type="button" aria-label="播放或暂停">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+        <polygon points="7 4 20 12 7 20 7 4"></polygon>
+      </svg>
+    </button>
+
+    <button class="glyph glyph-skip" id="deckNext" type="button" aria-label="下一首">
+      <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+        <polygon points="5 4 15 12 5 20 5 4"></polygon>
+        <rect x="16.6" y="4" width="2.4" height="16" rx="1.2"></rect>
+      </svg>
+    </button>
+  </div>
+
+  <div class="presets" role="group" aria-label="音量预设与微调">
+    <button id="stepDown" class="preset-step" type="button" aria-label="减少 5% 音量">−5%</button>
+    <button class="preset-key" data-preset="20" type="button">20%</button>
+    <button class="preset-key" data-preset="50" type="button">50%</button>
+    <button class="preset-key" data-preset="80" type="button">80%</button>
+    <button id="stepUp" class="preset-step" type="button" aria-label="增加 5% 音量">+5%</button>
+  </div>
+
+  <footer class="footnote">
+    <p>Windows 全局媒体控制 · 免密局域网访问</p>
+  </footer>
+</main>
+
+<div class="console-toast" id="consoleToast" role="alert">
+  <span id="toastText">服务连接异常</span>
+  <button id="toastRetryBtn" class="toast-retry" type="button">重试</button>
+</div>
+<script>
+/**
+ * Amou Music · Frontend Controller
+ * Minimal, modular, tactile client architecture for audio hardware remote.
+ */
+(function() {
+  'use strict';
+
+  // --- 1. Configuration ---
+  const CONFIG = {
+    POLL_NORMAL_MS: 2000,
+    POLL_MAX_MS: 8000,
+    POLL_BACKOFF: 1.5,
+    FADER_SUPPRESS_MS: 950,
+    DEBOUNCE_FADER_MS: 80,
+    REQUEST_TIMEOUT_MS: 4000
+  };
+
+  // --- 2. Haptic Feedback ---
+  const Haptics = {
+    tap() {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(10); } catch (_) {}
+      }
+    },
+    switch() {
+      if (navigator.vibrate) {
+        try { navigator.vibrate(20); } catch (_) {}
+      }
+    },
+    action() {
+      if (navigator.vibrate) {
+        try { navigator.vibrate([16, 32, 16]); } catch (_) {}
+      }
+    }
+  };
+
+  // --- 3. API Communication Layer ---
+  class AudioRemoteAPI {
+    static async request(path, options = {}) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), CONFIG.REQUEST_TIMEOUT_MS);
+
+      try {
+        const res = await fetch(path, {
+          cache: 'no-store',
+          headers: { 'Accept': 'application/json' },
+          signal: controller.signal,
+          ...options
+        });
+        clearTimeout(timer);
+
+        let data = {};
+        try { data = await res.json(); } catch (_) {}
+
+        if (!res.ok) {
+          const err = new Error(data.error || ("HTTP " + res.status));
+          err.status = res.status;
+          throw err;
+        }
+        return data;
+      } catch (err) {
+        clearTimeout(timer);
+        if (err.name === 'AbortError') {
+          const timeoutErr = new Error('请求超时，请检查服务状态');
+          timeoutErr.status = 408;
+          throw timeoutErr;
+        }
+        throw err;
+      }
+    }
+
+    static getState() {
+      return this.request('/api/state');
+    }
+
+    static setVolume(value) {
+      return this.request('/api/volume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: Math.max(0, Math.min(1, value)) })
+      });
+    }
+
+    static nudgeVolume(delta) {
+      return this.request('/api/volume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delta })
+      });
+    }
+
+    static setMute(muted) {
+      return this.request('/api/mute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ muted: Boolean(muted) })
+      });
+    }
+
+    static playback(action) {
+      return this.request('/api/playback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+    }
+  }
+
+  // --- 4. Observable State Store ---
+  class RemoteStore {
+    constructor() {
+      this.state = {
+        volume: 0,
+        muted: false,
+        device: '连接中…',
+        metadata: null,
+        status: 'connecting', // 'connected' | 'reconnecting' | 'offline'
+        error: null
+      };
+      this.subscribers = new Set();
+    }
+
+    subscribe(fn) {
+      this.subscribers.add(fn);
+      fn(this.state);
+      return () => this.subscribers.delete(fn);
+    }
+
+    update(patch) {
+      this.state = { ...this.state, ...patch };
+      this.subscribers.forEach(fn => fn(this.state));
+    }
+
+    get() {
+      return this.state;
+    }
+  }
+
+  // --- 5. UI View & Controller ---
+  class UIController {
+    constructor(store, coordinator) {
+      this.store = store;
+      this.coordinator = coordinator;
+      this.suppressFaderUntil = 0;
+      this.debounceTimer = null;
+      this.toastTimer = null;
+
+      this.els = {
+        pilotBadge: document.getElementById('pilotBadge'),
+        deviceName: document.getElementById('deviceName'),
+        faderModule: document.getElementById('faderModule'),
+        volumeNum: document.getElementById('volumeNum'),
+        faderSlider: document.getElementById('faderSlider'),
+        cutBtn: document.getElementById('cutBtn'),
+        cutIcon: document.getElementById('cutIcon'),
+        cutText: document.getElementById('cutText'),
+        stepDown: document.getElementById('stepDown'),
+        stepUp: document.getElementById('stepUp'),
+        presets: document.querySelectorAll('.preset-key'),
+        deckPrev: document.getElementById('deckPrev'),
+        deckPlay: document.getElementById('deckPlay'),
+        deckNext: document.getElementById('deckNext'),
+        trackTitle: document.getElementById('trackTitle'),
+        trackArtist: document.getElementById('trackArtist'),
+        consoleToast: document.getElementById('consoleToast'),
+        toastText: document.getElementById('toastText'),
+        toastRetryBtn: document.getElementById('toastRetryBtn')
+      };
+
+      this.bindEvents();
+      this.store.subscribe(state => this.render(state));
+    }
+
+    showToast(msg, onRetry = null) {
+      this.els.toastText.textContent = msg;
+      this.els.consoleToast.classList.add('show');
+
+      if (onRetry) {
+        this.els.toastRetryBtn.hidden = false;
+        this.els.toastRetryBtn.onclick = () => {
+          this.hideToast();
+          onRetry();
+        };
+      } else {
+        this.els.toastRetryBtn.hidden = true;
+      }
+
+      clearTimeout(this.toastTimer);
+      this.toastTimer = setTimeout(() => this.hideToast(), 4500);
+    }
+
+    hideToast() {
+      clearTimeout(this.toastTimer);
+      this.els.consoleToast.classList.remove('show');
+    }
+
+    render(state) {
+      const pct = Math.round((state.volume || 0) * 100);
+
+      // Connection Status & Pilot LED
+      this.els.pilotBadge.className = 'pilot-badge ' + state.status;
+      if (state.status === 'connected') {
+        this.els.deviceName.textContent = state.device || '已连接';
+      } else if (state.status === 'reconnecting') {
+        this.els.deviceName.textContent = '重连中…';
+      } else {
+        this.els.deviceName.textContent = '已离线';
+      }
+
+      // Fader & Mute (CUT)
+      this.els.volumeNum.textContent = isNaN(pct) ? '--' : pct;
+      document.documentElement.style.setProperty('--fill-pct', pct + '%');
+      this.els.faderModule.classList.toggle('is-muted', state.muted);
+
+      if (Date.now() > this.suppressFaderUntil) {
+        this.els.faderSlider.value = pct;
+      }
+
+      this.els.cutBtn.classList.toggle('active', state.muted);
+      this.els.cutBtn.setAttribute('aria-checked', state.muted ? 'true' : 'false');
+      this.els.cutText.textContent = state.muted ? '已静音' : '静音';
+      this.updateCutIcon(state.muted, pct);
+
+      // Preset buttons state
+      this.els.presets.forEach(btn => {
+        const val = Number(btn.dataset.preset);
+        btn.classList.toggle('active', !state.muted && pct === val);
+      });
+
+      // Session Metadata
+      if (state.metadata && state.metadata.title) {
+        this.els.trackTitle.textContent = state.metadata.title;
+        this.els.trackArtist.textContent = state.metadata.artist || '系统音频会话';
+      } else {
+        this.els.trackTitle.textContent = '全局系统音频会话';
+        this.els.trackArtist.textContent = state.device ? ('输出设备: ' + state.device) : '网易云 / QQ音乐 / Spotify / 浏览器';
+      }
+    }
+
+    updateCutIcon(isMuted, pct) {
+      if (isMuted || pct === 0) {
+        this.els.cutIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line>';
+      } else if (pct < 50) {
+        this.els.cutIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>';
+      } else {
+        this.els.cutIcon.innerHTML = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>';
+      }
+    }
+
+    bindEvents() {
+      // Manual sync on badge click
+      this.els.pilotBadge.addEventListener('click', () => {
+        Haptics.tap();
+        this.coordinator.pollNow();
+      });
+
+      // Continuous Fader
+      this.els.faderSlider.addEventListener('input', () => {
+        const pct = Number(this.els.faderSlider.value);
+        this.suppressFaderUntil = Date.now() + CONFIG.FADER_SUPPRESS_MS;
+
+        // Immediate visual feedback
+        this.els.volumeNum.textContent = pct;
+        document.documentElement.style.setProperty('--fill-pct', pct + '%');
+        this.els.faderModule.classList.remove('is-muted');
+
+        clearTimeout(this.debounceTimer);
+        this.debounceTimer = setTimeout(async () => {
+          try {
+            const newState = await AudioRemoteAPI.setVolume(pct / 100);
+            this.store.update({ ...newState, status: 'connected' });
+          } catch (err) {
+            this.showToast(err.message || '调节音量失败', () => this.coordinator.pollNow());
+            this.coordinator.pollNow();
+          }
+        }, CONFIG.DEBOUNCE_FADER_MS);
+      });
+
+      // Nudge Steps
+      this.els.stepDown.addEventListener('click', async () => {
+        Haptics.tap();
+        this.suppressFaderUntil = Date.now() + CONFIG.FADER_SUPPRESS_MS;
+        try {
+          const newState = await AudioRemoteAPI.nudgeVolume(-5);
+          this.store.update({ ...newState, status: 'connected' });
+        } catch (err) {
+          this.showToast(err.message || '音量微调失败');
+        }
+      });
+
+      this.els.stepUp.addEventListener('click', async () => {
+        Haptics.tap();
+        this.suppressFaderUntil = Date.now() + CONFIG.FADER_SUPPRESS_MS;
+        try {
+          const newState = await AudioRemoteAPI.nudgeVolume(5);
+          this.store.update({ ...newState, status: 'connected' });
+        } catch (err) {
+          this.showToast(err.message || '音量微调失败');
+        }
+      });
+
+      // Monitor Presets
+      this.els.presets.forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const val = Number(btn.dataset.preset);
+          Haptics.switch();
+          this.suppressFaderUntil = Date.now() + CONFIG.FADER_SUPPRESS_MS;
+          try {
+            const newState = await AudioRemoteAPI.setVolume(val / 100);
+            this.store.update({ ...newState, status: 'connected' });
+          } catch (err) {
+            this.showToast(err.message || '设置预设音量失败');
+          }
+        });
+      });
+
+      // Mute (CUT) Switch
+      this.els.cutBtn.addEventListener('click', async () => {
+        Haptics.switch();
+        const isMuted = this.store.get().muted;
+        try {
+          const newState = await AudioRemoteAPI.setMute(!isMuted);
+          this.store.update({ ...newState, status: 'connected' });
+        } catch (err) {
+          this.showToast(err.message || '静音操作失败');
+        }
+      });
+
+      // Deck Transport Keys
+      const bindDeckKey = (btnEl, action) => {
+        btnEl.addEventListener('click', async () => {
+          Haptics.action();
+          try {
+            await AudioRemoteAPI.playback(action);
+          } catch (err) {
+            this.showToast(err.message || '发送按键失败', () => this.coordinator.pollNow());
+          }
+        });
+      };
+
+      bindDeckKey(this.els.deckPrev, 'prev');
+      bindDeckKey(this.els.deckPlay, 'play_pause');
+      bindDeckKey(this.els.deckNext, 'next');
+    }
+  }
+
+  // --- 6. Polling & Connection Coordinator ---
+  class ConnectionCoordinator {
+    constructor(store) {
+      this.store = store;
+      this.interval = CONFIG.POLL_NORMAL_MS;
+      this.timer = null;
+      this.ui = null;
+    }
+
+    setUI(ui) {
+      this.ui = ui;
+    }
+
+    async pollNow() {
+      clearTimeout(this.timer);
+      try {
+        const state = await AudioRemoteAPI.getState();
+        this.interval = CONFIG.POLL_NORMAL_MS;
+        this.store.update({ ...state, status: 'connected', error: null });
+        if (this.ui) this.ui.hideToast();
+      } catch (err) {
+        const wasConnected = this.store.get().status === 'connected';
+        this.interval = Math.min(CONFIG.POLL_MAX_MS, this.interval * CONFIG.POLL_BACKOFF);
+        this.store.update({
+          status: wasConnected ? 'reconnecting' : 'offline',
+          error: err
+        });
+        if (this.ui) {
+          const hint = err.status === 503 ? '声卡设备不可用' : '请确认电脑端服务正在运行';
+          this.ui.showToast(err.message + ' (' + hint + ')', () => this.pollNow());
+        }
+      } finally {
+        this.schedule();
+      }
+    }
+
+    schedule() {
+      clearTimeout(this.timer);
+      if (document.visibilityState === 'visible') {
+        this.timer = setTimeout(() => this.pollNow(), this.interval);
+      }
+    }
+
+    init() {
+      this.pollNow();
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          this.interval = CONFIG.POLL_NORMAL_MS;
+          this.pollNow();
+        } else {
+          clearTimeout(this.timer);
+        }
+      });
+
+      window.addEventListener('online', () => {
+        this.interval = CONFIG.POLL_NORMAL_MS;
+        this.pollNow();
+      });
+
+      window.addEventListener('offline', () => {
+        this.store.update({ status: 'offline' });
+      });
+    }
+  }
+
+  // --- 7. Initialization ---
+  const store = new RemoteStore();
+  const coordinator = new ConnectionCoordinator(store);
+  const ui = new UIController(store, coordinator);
+  coordinator.setUI(ui);
+  coordinator.init();
+})();
+</script>
+</body>
+<script>
+/* Keep the iOS status-bar text legible. 'default' renders dark glyphs (light
+   canvas); 'black-translucent' renders light glyphs (dark canvas). Follows
+   the same media query that drives the CSS palette. */
+(function () {
+  var meta = document.getElementById('statusBarStyle');
+  if (!meta) return;
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  var apply = function () {
+    meta.setAttribute('content', mq.matches ? 'black-translucent' : 'default');
+  };
+  apply();
+  if (mq.addEventListener) mq.addEventListener('change', apply);
+  else if (mq.addListener) mq.addListener(apply);
+})();
+</script>
+</body>
+</html>

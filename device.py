@@ -1,0 +1,173 @@
+# -*- coding: utf-8 -*-
+"""System device control for the LAN remote.
+
+Every call that touches Core Audio (COM) or Win32 input is funnelled through a
+single dedicated worker thread. Two reasons:
+
+1. COM has to be initialised per thread, and comtypes is far happier when all
+   calls land in the same apartment.
+2. Dragging the volume slider on the phone produces a burst of requests;
+   serialising them keeps the endpoint handle consistent.
+
+HTTP request threads never call the device functions directly -- they go
+through :meth:`DeviceWorker.submit`.
+"""
+
+from __future__ import annotations
+
+import ctypes
+import queue
+import threading
+
+# Virtual key codes for the global media keys (WinUser.h). These are handled by
+# the shell, so they reach whichever app owns the current media session and are
+# unaffected by which window has focus.
+VK_MEDIA_NEXT_TRACK = 0xB0
+VK_MEDIA_PREV_TRACK = 0xB1
+VK_MEDIA_PLAY_PAUSE = 0xB3
+KEYEVENTF_KEYUP = 0x0002
+
+PLAYBACK_ACTIONS = {
+    "play_pause": VK_MEDIA_PLAY_PAUSE,
+    "next": VK_MEDIA_NEXT_TRACK,
+    "prev": VK_MEDIA_PREV_TRACK,
+}
+
+_STOP = object()
+
+
+class DeviceError(RuntimeError):
+    """The default audio endpoint could not be reached (unplugged, disabled...)."""
+
+
+class DeviceWorker:
+    """Serialises all device access onto one COM-initialised thread."""
+
+    def __init__(self) -> None:
+        self._queue: "queue.Queue" = queue.Queue()
+        self._ready = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run, name="device-worker", daemon=True
+        )
+        self._thread.start()
+        # Block until COM is live so the first request never races the import.
+        self._ready.wait()
+
+    # -- worker thread ----------------------------------------------------
+    def _run(self) -> None:
+        import comtypes
+
+        comtypes.CoInitialize()
+        self._ready.set()
+        while True:
+            job = self._queue.get()
+            if job is _STOP:
+                comtypes.CoUninitialize()
+                return
+            func, args, slot = job
+            try:
+                slot["value"] = func(*args)
+            except BaseException as exc:  # forwarded verbatim to the caller
+                slot["error"] = exc
+            finally:
+                slot["event"].set()
+
+    def submit(self, func, *args):
+        """Run *func* on the worker thread and return its result."""
+        slot = {"event": threading.Event()}
+        self._queue.put((func, args, slot))
+        slot["event"].wait()
+        if "error" in slot:
+            raise slot["error"]
+        return slot["value"]
+
+    def stop(self) -> None:
+        self._queue.put(_STOP)
+        self._thread.join(timeout=2)
+
+    # -- public API (blocking) -------------------------------------------
+    def state(self) -> dict:
+        return self.submit(_read_state)
+
+    def set_volume(self, value: float) -> dict:
+        return self.submit(_set_volume, value)
+
+    def nudge_volume(self, delta_points: float) -> dict:
+        return self.submit(_nudge_volume, delta_points)
+
+    def set_mute(self, muted: bool) -> dict:
+        return self.submit(_set_mute, muted)
+
+    def playback(self, action: str) -> dict:
+        return self.submit(_playback, action)
+
+
+# -- implementations, all executed on the worker thread -------------------
+
+
+def _require_device():
+    from pycaw.constants import AudioDeviceState
+    from pycaw.pycaw import AudioUtilities
+
+    try:
+        dev = AudioUtilities.GetSpeakers()
+    except Exception as exc:
+        raise DeviceError("找不到默认音频输出设备") from exc
+    if dev is None:
+        raise DeviceError("找不到默认音频输出设备")
+    if dev.state != AudioDeviceState.Active:
+        raise DeviceError("默认音频输出设备不可用，可能已拔出或被禁用")
+    return dev
+
+
+def _read_state() -> dict:
+    dev = _require_device()
+    return {
+        "volume": round(dev.volume_percent / 100.0, 4),
+        "muted": bool(dev.EndpointVolume.GetMute()),
+        "device": dev.FriendlyName or "未知设备",
+        # Reserved for a future SystemMediaTransportControls integration: the
+        # WinRT projection Python needs for this is not available on this
+        # machine (no .NET SDK, no Windows SDK, no matching PyPI package), so
+        # v1 always reports null and the UI hides the track slot.
+        "metadata": None,
+    }
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _set_volume(value: float) -> dict:
+    dev = _require_device()
+    dev.volume_percent = _clamp(value, 0.0, 1.0) * 100
+    return _read_state()
+
+
+def _nudge_volume(delta_points: float) -> dict:
+    """Relative change, expressed in percentage points (5 == 5%)."""
+    dev = _require_device()
+    dev.volume_percent = _clamp(dev.volume_percent + delta_points, 0.0, 100.0)
+    return _read_state()
+
+
+def _set_mute(muted: bool) -> dict:
+    dev = _require_device()
+    dev.EndpointVolume.SetMute(1 if muted else 0, None)
+    return _read_state()
+
+
+def _send_media_key(vk: int) -> None:
+    user32 = ctypes.windll.user32
+    user32.keybd_event(vk, 0, 0, 0)
+    user32.keybd_event(vk, 0, KEYEVENTF_KEYUP, 0)
+
+
+def _playback(action: str) -> dict:
+    # Deliberately does not touch the audio endpoint: transport keys should
+    # keep working even if the output device disappears.
+    vk = PLAYBACK_ACTIONS.get(action)
+    if vk is None:
+        raise ValueError("不支持的播放操作")
+    _send_media_key(vk)
+    return {"ok": True, "action": action}
