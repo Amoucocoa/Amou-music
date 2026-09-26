@@ -60,8 +60,14 @@
     --water-2:     #A9D3BE;
     --water-3:     #0B8A4B;
     --water-vig:   rgba(22, 74, 56, 0.20);
-    --seg-active:  #FFFFFF;
     --seg-ink:     #06120D;
+
+    /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
+       whatever is painted behind the element, so an opaque colour here
+       silently neutralises the filter and the effect never appears. */
+    --bg:          rgba(242, 242, 247, 0.72);
+    --fill:        rgba(255, 255, 255, 0.55);
+    --seg-active:  rgba(255, 255, 255, 0.92);
 
     --r-art:      22px;
     --r-pill:     999px;
@@ -102,8 +108,10 @@
     --water-2:     #0A3527;
     --water-3:     #2EE06A;
     --water-vig:   rgba(0, 7, 4, 0.78);
-    --seg-active:  #48484A;
     --seg-ink:     #FFFFFF;
+    --bg:          rgba(9, 20, 16, 0.70);
+    --fill:        rgba(255, 255, 255, 0.10);
+    --seg-active:  rgba(255, 255, 255, 0.18);
   }
 
   * {
@@ -755,6 +763,8 @@
     padding: 2px;
     border-radius: 12px;
     background: var(--fill);
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    backdrop-filter: saturate(180%) blur(16px);
   }
 
   .seg {
@@ -779,6 +789,8 @@
     background: var(--seg-active);
     color: var(--seg-ink);
     font-weight: 600;
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    backdrop-filter: saturate(180%) blur(12px);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
   }
 
