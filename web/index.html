@@ -73,6 +73,11 @@
     /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
        whatever is painted behind the element, so an opaque colour here
        silently neutralises the filter and the effect never appears. */
+    /* Unitless multiplier on every frosted surface's blur. 0 = plain
+       translucency, 1 = the authored values, 2 = double the frosting.
+       Each surface keeps its own base px value so the hierarchy between
+       them (sheet frosts hardest, the selected segment least) survives. */
+    --glass-blur:  1;
     --bg:          rgba(242, 242, 247, 0.72);
     --fill:        rgba(255, 255, 255, 0.55);
     --seg-active:  rgba(255, 255, 255, 0.92);
@@ -292,8 +297,8 @@
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
     transition: transform 0.18s var(--ease);
   }
   .pilot-badge:active { transform: scale(0.95); }
@@ -419,8 +424,8 @@
     cursor: pointer;
     user-select: none;
     touch-action: manipulation;
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
     transition: transform 0.18s var(--ease), background-color 0.2s var(--ease),
                 color 0.2s var(--ease);
   }
@@ -622,8 +627,8 @@
     color: var(--chip-ink);
     font-size: 13.5px;
     font-weight: 500;
-    -webkit-backdrop-filter: saturate(180%) blur(24px);
-    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(24px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(24px * var(--glass-blur)));
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -682,8 +687,8 @@
     cursor: pointer;
     user-select: none;
     touch-action: manipulation;
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
     transition: transform 0.18s var(--ease), background-color 0.2s var(--ease);
   }
   .icon-button:active { transform: scale(0.9); }
@@ -713,8 +718,8 @@
     background: var(--bg);
     color: var(--on-1);
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.28);
-    -webkit-backdrop-filter: saturate(180%) blur(28px);
-    backdrop-filter: saturate(180%) blur(28px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(28px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(28px * var(--glass-blur)));
     transform: translateY(100%);
     transition: transform 0.42s var(--ease);
   }
@@ -780,8 +785,8 @@
     padding: 2px;
     border-radius: 12px;
     background: var(--fill);
-    -webkit-backdrop-filter: saturate(180%) blur(16px);
-    backdrop-filter: saturate(180%) blur(16px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(16px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(16px * var(--glass-blur)));
   }
 
   .seg {
@@ -806,8 +811,8 @@
     background: var(--seg-active);
     color: var(--seg-ink);
     font-weight: 600;
-    -webkit-backdrop-filter: saturate(180%) blur(12px);
-    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(calc(12px * var(--glass-blur)));
+    backdrop-filter: saturate(180%) blur(calc(12px * var(--glass-blur)));
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
   }
 
@@ -1258,6 +1263,15 @@
       </div>
     </div>
     <p class="setting-note">同时影响滑块、播放键、状态灯与背景高光</p>
+  </div>
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="glassBlur">背景模糊</label>
+      <output class="setting-value" id="glassBlurValue" for="glassBlur">100%</output>
+    </div>
+    <input type="range" id="glassBlur" class="setting-slider" min="0" max="200" step="5" value="100"
+           aria-describedby="glassBlurNote">
+    <p class="setting-note" id="glassBlurNote">拖到最左只留半透明，最右加倍磨砂</p>
   </div>
 
   <div class="setting-row">
@@ -1931,6 +1945,8 @@ window.AmuTheme = (function () {
   var backdrop = document.getElementById('sheetBackdrop');
   var doneBtn = document.getElementById('settingsDone');
   var slider = document.getElementById('bgSpeed');
+  var blurSlider = document.getElementById('glassBlur');
+  var blurOut = document.getElementById('glassBlurValue');
   var readout = document.getElementById('bgSpeedValue');
   var segs = document.querySelectorAll('[data-theme-choice]');
   var Theme = window.AmuTheme;
@@ -1955,6 +1971,47 @@ window.AmuTheme = (function () {
 
   function writeSpeed(n) {
     try { localStorage.setItem(KEY, String(n)); } catch (e) { /* private mode */ }
+  }
+
+  /* ---- glass blur ---------------------------------------------------- */
+  /* Stored as the raw slider percentage (0-200). Only the multiplier is
+     written inline: when nothing is customised the property is removed so the
+     :root default (1) keeps ownership, exactly like the accent colours. */
+  var BLUR_KEY = 'amou.settings.glassBlur';
+
+  function readBlur() {
+    try {
+      var raw = localStorage.getItem(BLUR_KEY);
+      var n = raw === null ? NaN : Number(raw);
+      return isFinite(n) && n >= 0 ? Math.min(n, 200) : 100;
+    } catch (e) { return 100; }
+  }
+
+  function writeBlur(n) {
+    try { localStorage.setItem(BLUR_KEY, String(n)); } catch (e) { /* private mode */ }
+  }
+
+  var blurTimer = null;
+
+  function applyBlur(pct) {
+    if (!blurSlider) return;
+    blurSlider.value = String(pct);
+    if (blurOut) blurOut.textContent = Math.round(pct) + '%';
+    var el = document.documentElement;
+    if (pct === 100) {
+      el.style.removeProperty('--glass-blur');
+    } else {
+      el.style.setProperty('--glass-blur', String(pct / 100));
+    }
+  }
+
+  if (blurSlider) {
+    blurSlider.addEventListener('input', function () {
+      var pct = Number(blurSlider.value);
+      applyBlur(pct);
+      clearTimeout(blurTimer);
+      blurTimer = setTimeout(function () { writeBlur(pct); }, 200);
+    });
   }
 
   /* The motion layer owns the backdrop now. Without GSAP there is nothing to
@@ -2123,6 +2180,7 @@ window.AmuTheme = (function () {
     if (slider) slider.value = String(speed * 100);
     if (readout) readout.textContent = Math.round(speed * 100) + '%';
     apply(speed);
+    applyBlur(readBlur());
     syncTheme();
   }
 
