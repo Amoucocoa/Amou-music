@@ -37,17 +37,19 @@
        are tuned to stay legible across the whole field. Their S/L values are
        fixed (only the hue rotates with --accent-h) precisely so the contrast
        ratio against the water ramp never moves when the user re-tints. The
-       solid near-blacks below stay literal: at L~9% any hue reads as black,
-       so deriving them would add churn without a visible gain. */
-    --on-1:      #06120D;
+       near-blacks derive from the hue too. They are at L~5%, where the rotation
+       is visually almost nil — but NOT nil: #06120D is a green-black, and at
+       5% lightness against a saturated background that residual green cast is
+       exactly what reads as "this element didn't follow the accent". */
+    --on-1:      hsl(var(--accent-h) 50% 5%);
     --on-2:      hsl(var(--accent-h) 74% 9% / 0.62);
     --on-3:      hsl(var(--accent-h) 74% 9% / 0.36);
-    --glyph:     #06120D;
+    --glyph:     hsl(var(--accent-h) 50% 5%);
     --track-bg:  hsl(var(--accent-h) 60% 20% / 0.16);
     --track-fill: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.85);
     --hairline:  hsl(var(--accent-h) 60% 20% / 0.12);
     --chip:      rgba(255, 255, 255, 0.55);
-    --chip-ink:  #06120D;
+    --chip-ink:  hsl(var(--accent-h) 50% 5%);
     --sleeve:    hsl(var(--accent-h) 58% 13% / 0.20);
 
     /* Accent is authored as three HSL components so the settings sliders can
@@ -89,7 +91,7 @@
     --water-2:     hsl(var(--accent-h) calc(var(--accent-s) * 0.38) clamp(46%, calc(var(--accent-l) + 46%), 100%));
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
     --water-vig:   hsl(var(--accent-h) calc(var(--accent-s) * 0.63) 19% / calc(0.20 * var(--vig-k)));
-    --seg-ink:     #06120D;
+    --seg-ink:     hsl(var(--accent-h) 50% 5%);
 
     /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
        whatever is painted behind the element, so an opaque colour here
@@ -129,7 +131,7 @@
     --hairline:  rgba(255, 255, 255, 0.14);
     --chip:      rgba(255, 255, 255, 0.16);
     --chip-ink:  #FFFFFF;
-    --sleeve:    rgba(0, 10, 7, 0.34);
+    --sleeve:    hsl(var(--accent-h) 45% 2% / 0.34);
 
     /* Only the three components are overridden; --tint / --tint-soft /
        --green re-derive from them because custom properties substitute at
@@ -147,7 +149,7 @@
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
     --water-vig:   hsl(var(--accent-h) calc(var(--accent-s) * 0.41) 2% / calc(0.78 * var(--vig-k)));
     --seg-ink:     #FFFFFF;
-    --bg:          rgba(9, 20, 16, 0.70);
+    --bg:          hsl(var(--accent-h) 38% 5.7% / 0.70);
     --fill:        rgba(255, 255, 255, 0.10);
     --seg-active:  rgba(255, 255, 255, 0.18);
   }
@@ -1851,11 +1853,36 @@ window.AmuTheme = (function () {
     return sysDark.matches ? 'dark' : 'light';
   }
 
+  /* theme-color must be a RESOLVED colour, but getComputedStyle on a custom
+     property returns the substituted token stream — --water-base still spells
+     out calc() and clamp(), which is not a valid colour and would be ignored.
+     Painting it onto a throwaway element and reading background-color forces
+     the engine to evaluate the whole expression. The probe is created once
+     and reused, because this runs on every accent-slider frame. */
+  var probe = null;
+
+  function syncChrome(r) {
+    if (!colorMeta) return;
+    if (!probe && document.body) {
+      probe = document.createElement('span');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:absolute;left:-9999px;top:0;width:0;height:0;pointer-events:none';
+      document.body.appendChild(probe);
+    }
+    if (!probe) return;
+    probe.style.backgroundColor = 'var(--water-base)';
+    var v = getComputedStyle(probe).backgroundColor;
+    if (v && v !== 'rgba(0, 0, 0, 0)' && v !== 'transparent') colorMeta.setAttribute('content', v);
+  }
+
   function paint(c) {
     var r = resolve(c);
     root.setAttribute('data-theme', r);
     if (schemeMeta) schemeMeta.setAttribute('content', r);
-    if (colorMeta) colorMeta.setAttribute('content', r === 'dark' ? '#04120D' : '#E9F3ED');
+    /* Read the RESOLVED --water-base rather than hardcoding a green: that
+       token already derives from --accent-h, so the browser chrome follows
+       the accent instead of staying emerald. */
+    syncChrome(r);
     /* black-translucent renders light glyphs, so it is the dark-canvas value. */
     if (barMeta) barMeta.setAttribute('content', r === 'dark' ? 'black-translucent' : 'default');
     for (var i = 0; i < listeners.length; i++) listeners[i](c, r);
@@ -1878,7 +1905,7 @@ window.AmuTheme = (function () {
   if (sysDark.addEventListener) sysDark.addEventListener('change', onSystemChange);
   else if (sysDark.addListener) sysDark.addListener(onSystemChange);
 
-  return { choice: choice, set: set, onChange: onChange, resolve: resolve };
+  return { choice: choice, set: set, onChange: onChange, resolve: resolve, syncChrome: syncChrome };
 })();
 </script>
 
@@ -2336,6 +2363,11 @@ window.AmuTheme = (function () {
     }
     root.style.setProperty('--accent-s', a.s + '%');
     root.style.setProperty('--accent-l', a.l + '%');
+    /* Keep the mobile browser chrome in step with the accent. The theme module
+       owns that and already does it on theme change; the accent sliders bypass
+       the theme module, so without this the address bar keeps whatever colour
+       was painted at load. */
+    if (Theme && Theme.syncChrome) Theme.syncChrome();
     acc.h.value = String(a.h);
     acc.s.value = String(a.s);
     acc.l.value = String(a.l);
