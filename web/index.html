@@ -2024,6 +2024,39 @@ window.AmuTheme = (function () {
   if (motion.addEventListener) motion.addEventListener('change', onMotionChange);
   else if (motion.addListener) motion.addListener(onMotionChange);
 
+  /* 5. Vinyl. A record turns at CONSTANT angular velocity, so this is the one
+        tween in the file with ease 'none' — any easing would read as the disc
+        accelerating and braking once per revolution.
+
+        16s per turn, about 3.75rpm. Real vinyl is 33 1/3 (1.8s), but this is a
+        full-bleed backdrop element and the eye tracks the highlight rather
+        than the disc: 2.6s read as restless, 8s still a touch brisk, 16s is
+        slow enough to be ambient while still advancing 22.5 deg per second,
+        so it never looks frozen. The duration is the knob if it needs tuning.
+
+        Note what does NOT move: the grooves, the label and the spindle are all
+        radially symmetric, so the rotation is legible only through the conic
+        sheen on top. That is the real-world behaviour too — a record's light
+        highlight is what tells you the disc is turning.
+
+        The element is centred with transform: translate(-50%,-50%), and GSAP
+        takes over the whole transform. xPercent/yPercent are stated EXPLICITLY
+        rather than left to GSAP's parsing of the existing value: a percentage
+        translate that gets baked into a pixel `y` while yPercent stays 0 is
+        exactly how the disc drifts off-centre. */
+  var vinyl = document.querySelector('.vinyl');
+
+  mm.add('(prefers-reduced-motion: no-preference)', function () {
+    if (!vinyl) return;
+    g.to(vinyl, {
+      rotation: 360,
+      xPercent: -50,
+      yPercent: -50,
+      duration: 16,
+      ease: 'none',
+      repeat: -1
+    });
+  });
   /* 5. Sheet. A timeline so the backdrop, the panel and the rows move as one
         gesture instead of three transitions that merely overlap. */
   window.AmuAnim = {
