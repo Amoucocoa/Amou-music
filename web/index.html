@@ -187,13 +187,18 @@
      unlike vw, which would keep inflating past it. */
   .app {
     width: 100%;
-    /* The COLUMN is height-budgeted too, not just the artwork — otherwise a
-       short-but-wide window keeps a 560px column while everything inside it
-       shrinks, and the width-driven pieces (the volume slider spans the full
-       column) end up grossly out of proportion with the type and icons
-       beside them.
+    /* The COLUMN follows the viewport WIDTH (width:100% below the ceiling)
+       and is additionally height-budgeted — otherwise a short-but-wide window
+       keeps a full-width column while everything inside it shrinks, and the
+       width-driven pieces (the volume slider spans the full column) end up
+       grossly out of proportion with the type and icons beside them.
 
-       Solving W + chrome(W) <= 100dvh gives the width cap below. The slope is
+       720px is the desktop ceiling: below it the column tracks the window
+       and fills ~90% of it, above it the column stops growing and centres.
+       The artwork is square and equal to the column, so the ceiling is also
+       what keeps the vinyl from becoming a wall on a large monitor.
+
+       Solving W + chrome(W) <= 100dvh gives the height term of that cap. The slope is
        0.8 rather than the 0.636 that --chrome uses at full size, because the
        44pt touch targets and the fader's own 44px height do NOT shrink: chrome
        falls SUB-linearly as the column narrows, and fitting against the
@@ -206,7 +211,7 @@
        cannot see. Measured at 360x640: a 240px floor overflows by 49px,
        a 260px floor by 8px. Treat the chrome fit as valid only for
        W >= 280. */
-    max-width: max(260px, min(560px, calc((100dvh - 198px) / 1.8)));
+    max-width: max(260px, min(720px, calc((100dvh - 198px) / 1.8)));
     display: flex;
     flex-direction: column;
     container-type: inline-size;
