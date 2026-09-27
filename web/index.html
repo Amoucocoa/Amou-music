@@ -482,6 +482,13 @@
   input[type="range"].fader-input {
     -webkit-appearance: none;
     appearance: none;
+    /* Both the thumb and the track are declared here because WebKit positions
+       the thumb by OFFSETTING it from the track: a centred thumb needs
+       margin-top = (track - thumb) / 2. The thumb is responsive while the
+       track is not, so the offset has to be derived from the same expression
+       — a hardcoded margin silently drifts as the player resizes. */
+    --fader-thumb: clamp(14px, 4.3cqi, 20px);
+    --fader-track: 5px;
     flex: 1;
     min-width: 0;
     height: 44px;
@@ -493,7 +500,7 @@
   }
 
   input[type="range"].fader-input::-webkit-slider-runnable-track {
-    height: 5px;
+    height: var(--fader-track);
     border-radius: 3px;
     background: linear-gradient(to right,
       var(--track-fill) 0%, var(--track-fill) var(--fill-pct),
@@ -502,9 +509,9 @@
   input[type="range"].fader-input::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: clamp(14px, 4.3cqi, 20px);
-    height: clamp(14px, 4.3cqi, 20px);
-    margin-top: -5px;
+    width: var(--fader-thumb);
+    height: var(--fader-thumb);
+    margin-top: calc((var(--fader-track) - var(--fader-thumb)) / 2);
     border-radius: 50%;
     background: var(--glyph);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
@@ -515,19 +522,22 @@
   }
 
   input[type="range"].fader-input::-moz-range-track {
-    height: 5px;
+    height: var(--fader-track);
     border-radius: 3px;
     background: linear-gradient(to right,
       var(--track-fill) 0%, var(--track-fill) var(--fill-pct),
       var(--track-bg) var(--fill-pct), var(--track-bg) 100%);
   }
   input[type="range"].fader-input::-moz-range-progress {
-    height: 5px;
+    height: var(--fader-track);
     border-radius: 3px;
     background: transparent;
   }
   input[type="range"].fader-input::-moz-range-thumb {
-    width: 15px; height: 15px;
+    /* Firefox centres range thumbs on the track by itself, so it needs no
+       margin — but it must still MATCH the WebKit thumb's size, or the two
+       engines render visibly different knobs on the same control. */
+    width: var(--fader-thumb); height: var(--fader-thumb);
     border: none;
     border-radius: 50%;
     background: var(--glyph);
