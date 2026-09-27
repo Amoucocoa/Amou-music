@@ -187,7 +187,26 @@
      unlike vw, which would keep inflating past it. */
   .app {
     width: 100%;
-    max-width: 560px;
+    /* The COLUMN is height-budgeted too, not just the artwork — otherwise a
+       short-but-wide window keeps a 560px column while everything inside it
+       shrinks, and the width-driven pieces (the volume slider spans the full
+       column) end up grossly out of proportion with the type and icons
+       beside them.
+
+       Solving W + chrome(W) <= 100dvh gives the width cap below. The slope is
+       0.8 rather than the 0.636 that --chrome uses at full size, because the
+       44pt touch targets and the fader's own 44px height do NOT shrink: chrome
+       falls SUB-linearly as the column narrows, and fitting against the
+       full-size slope overflows every short viewport (measured: 14-33px of
+       scroll at 1280x900 through 768x1024 before this refit).
+
+       260px is a floor, and it is EMPIRICAL rather than derived: below
+       ~280px of column the linear chrome model stops holding, because
+       narrow viewports wrap the artist line and add height the model
+       cannot see. Measured at 360x640: a 240px floor overflows by 49px,
+       a 260px floor by 8px. Treat the chrome fit as valid only for
+       W >= 280. */
+    max-width: max(260px, min(560px, calc((100dvh - 198px) / 1.8)));
     display: flex;
     flex-direction: column;
     container-type: inline-size;
@@ -197,14 +216,21 @@
     min-height: 100%;
 
     /* Everything on the page EXCEPT the artwork, as a function of the
-       container's inline size. Least-squares fit over three measured
-       container widths (560/346/301 -> chrome 598/462/430) gives 63.6cqi +
-       242px. The artwork subtracts this from the viewport height, which is
-       what finally makes the block size an input to the layout instead of
-       an afterthought. The vh floor keeps the cover from collapsing to a
-       stamp on very short windows; below that the page scrolls, which is
-       the correct trade — an unreadable cover is worse than a scrollbar. */
-    --chrome: calc(63.6cqi + 242px);
+       container's inline size. This is what finally makes the BLOCK size an
+       input to the layout instead of an afterthought: the artwork subtracts
+       it from the viewport height.
+
+       Fitted at 80cqi + 198px from measured (width, chrome) pairs
+       280->421, 402->512, 463->567. Note the slope is well under 1: the
+       44pt touch targets and the fader's own 44px height are fixed, so
+       chrome does NOT shrink in proportion to the column. Fitting it
+       linearly against the full-size 560px row overstates how much room a
+       narrow column frees.
+
+       The 160px vh floor keeps the cover from collapsing to a stamp on very
+       short windows; below that the page scrolls, which is the correct
+       trade — an unreadable cover is worse than a scrollbar. */
+    --chrome: calc(80cqi + 198px);
     justify-content: center;
   }
 
@@ -289,13 +315,13 @@
   .brand {
     display: flex;
     align-items: center;
-    gap: clamp(8px, 2.3cqi, 12px);
+    gap: clamp(8px, min(2.3cqi, 1.43dvh), 12px);
     min-width: 0;
   }
 
   .brand-mark {
-    width: clamp(25px, 7.5cqi, 34px);
-    height: clamp(25px, 7.5cqi, 34px);
+    width: clamp(25px, min(7.5cqi, 4.66dvh), 34px);
+    height: clamp(25px, min(7.5cqi, 4.66dvh), 34px);
     border-radius: 7px;
     background: var(--tint);
     color: var(--chip-ink);
@@ -305,24 +331,33 @@
   }
 
   .brand-name {
-    font-size: clamp(14px, 4.3cqi, 19px);
+    font-size: clamp(14px, min(4.3cqi, 2.67dvh), 19px);
     font-weight: 600;
     letter-spacing: -0.01em;
+    /* The column now narrows with the viewport height, so the wordmark can
+       run out of room. It must never wrap — the device badge beside it
+       already truncates with an ellipsis and is the correct thing to yield. */
+    white-space: nowrap;
   }
 
   /* className is fully rewritten by render(), so all styling lives here */
   .pilot-badge {
     display: inline-flex;
+    /* The column narrows with viewport height, so on a short window the
+       topbar's three items can outgrow it. min-width:0 is what lets the
+       device name's ellipsis actually engage instead of the badge pushing
+       past the brand. */
+    min-width: 0;
     align-items: center;
     gap: 6px;
-    height: clamp(27px, 8cqi, 36px);
-    padding: 0 clamp(10px, 3cqi, 14px);
+    height: clamp(27px, min(8cqi, 4.98dvh), 36px);
+    padding: 0 clamp(10px, min(3cqi, 1.87dvh), 14px);
     border: none;
     border-radius: var(--r-pill);
     background: var(--chip);
     color: var(--on-2);
     font-family: inherit;
-    font-size: clamp(11.5px, 3.5cqi, 15px);
+    font-size: clamp(11.5px, min(3.5cqi, 2.18dvh), 15px);
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -354,7 +389,7 @@
   }
 
   .pilot-device-name {
-    max-width: clamp(110px, 34cqi, 180px);
+    max-width: clamp(72px, 34cqi, 180px);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -416,7 +451,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: clamp(13px, 4cqi, 20px);
+    gap: clamp(13px, min(4cqi, 2.49dvh), 20px);
     margin-top: clamp(12px, min(6.4cqi, 3.98dvh), 32px);
   }
 
@@ -425,7 +460,7 @@
   }
 
   .track-title {
-    font-size: clamp(19px, 6cqi, 30px);
+    font-size: clamp(19px, min(6cqi, 3.73dvh), 30px);
     font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.2;
@@ -435,7 +470,7 @@
   }
 
   .track-artist {
-    font-size: clamp(14px, 4.3cqi, 20px);
+    font-size: clamp(14px, min(4.3cqi, 2.67dvh), 20px);
     font-weight: 400;
     color: var(--on-2);
     margin-top: 3px;
@@ -445,8 +480,8 @@
   }
 
   .mute-button {
-    width: clamp(38px, 11.5cqi, 54px);
-    height: clamp(38px, 11.5cqi, 54px);
+    width: clamp(38px, min(11.5cqi, 7.15dvh), 54px);
+    height: clamp(38px, min(11.5cqi, 7.15dvh), 54px);
     flex-shrink: 0;
     display: grid;
     place-items: center;
@@ -482,7 +517,7 @@
   }
 
   .volume-num {
-    font-size: clamp(37px, 11.5cqi, 56px);
+    font-size: clamp(37px, min(11.5cqi, 7.15dvh), 56px);
     font-weight: 700;
     letter-spacing: -0.035em;
     line-height: 1;
@@ -490,7 +525,7 @@
   }
 
   .volume-unit {
-    font-size: clamp(14px, 4.3cqi, 20px);
+    font-size: clamp(14px, min(4.3cqi, 2.67dvh), 20px);
     font-weight: 600;
     color: var(--on-3);
   }
@@ -501,13 +536,13 @@
   .volume-slider {
     display: flex;
     align-items: center;
-    gap: clamp(10px, 3.2cqi, 16px);
+    gap: clamp(10px, min(3.2cqi, 1.99dvh), 16px);
   }
 
   .speaker {
     flex-shrink: 0;
-    width: clamp(14px, 4.3cqi, 20px);
-    height: clamp(14px, 4.3cqi, 20px);
+    width: clamp(14px, min(4.3cqi, 2.67dvh), 20px);
+    height: clamp(14px, min(4.3cqi, 2.67dvh), 20px);
     color: var(--on-2);
   }
   .speaker svg { display: block; width: 100%; height: 100%; }
@@ -520,7 +555,7 @@
        margin-top = (track - thumb) / 2. The thumb is responsive while the
        track is not, so the offset has to be derived from the same expression
        — a hardcoded margin silently drifts as the player resizes. */
-    --fader-thumb: clamp(14px, 4.3cqi, 20px);
+    --fader-thumb: clamp(14px, min(4.3cqi, 2.67dvh), 20px);
     --fader-track: 5px;
     flex: 1;
     min-width: 0;
@@ -582,7 +617,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: clamp(40px, 13.3cqi, 70px);
+    gap: clamp(40px, min(13.3cqi, 8.27dvh), 70px);
     margin-top: clamp(13px, min(7.5cqi, 4.67dvh), 38px);
   }
 
@@ -603,12 +638,12 @@
   .glyph svg { display: block; }
 
   .glyph-skip svg {
-    width: clamp(31px, 9.8cqi, 48px);
-    height: clamp(31px, 9.8cqi, 48px);
+    width: clamp(31px, min(9.8cqi, 6.1dvh), 48px);
+    height: clamp(31px, min(9.8cqi, 6.1dvh), 48px);
   }
   .glyph-primary svg {
-    width: clamp(42px, 13.3cqi, 68px);
-    height: clamp(42px, 13.3cqi, 68px);
+    width: clamp(42px, min(13.3cqi, 8.27dvh), 68px);
+    height: clamp(42px, min(13.3cqi, 8.27dvh), 68px);
   }
 
   /* --- Presets: the muted bottom row --- */
@@ -616,22 +651,22 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: clamp(5px, 1.7cqi, 9px);
+    gap: clamp(5px, min(1.7cqi, 1.06dvh), 9px);
     margin-top: clamp(13px, min(7.5cqi, 4.67dvh), 38px);
     flex-wrap: wrap;
   }
 
   .preset-key,
   .preset-step {
-    min-width: clamp(44px, 13.3cqi, 68px);
-    height: clamp(30px, 9.2cqi, 44px);
-    padding: 0 clamp(9px, 2.8cqi, 14px);
+    min-width: clamp(44px, min(13.3cqi, 8.27dvh), 68px);
+    height: clamp(30px, min(9.2cqi, 5.72dvh), 44px);
+    padding: 0 clamp(9px, min(2.8cqi, 1.74dvh), 14px);
     border: none;
     border-radius: var(--r-pill);
     background: transparent;
     color: var(--on-3);
     font-family: inherit;
-    font-size: clamp(13px, 4cqi, 19px);
+    font-size: clamp(13px, min(4cqi, 2.49dvh), 19px);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
@@ -651,7 +686,7 @@
 
   .footnote {
     text-align: center;
-    font-size: clamp(10.5px, 3.2cqi, 15px);
+    font-size: clamp(10.5px, min(3.2cqi, 1.99dvh), 15px);
     line-height: 1.5;
     color: var(--on-3);
     margin-top: clamp(11px, min(5.8cqi, 3.61dvh), 29px);
@@ -1071,9 +1106,14 @@
     outline-offset: 3px;
   }
 
-  /* A short viewport has less height to give away, so the vertical rhythm
-     tightens and the artwork keeps the space it needs. The cap constant
-     drops in step with the recovered height. */
+  /* Every intrinsic dimension above — type scale, icon and control sizes,
+     gaps — is written as clamp(lo, min(Xcqi, Ydvh), hi), not clamp(lo, Xcqi,
+     hi). The dvh term is what makes a SHORT viewport shrink the UI rather
+     than only compressing the whitespace between it; Y = X * 560/900 keeps
+     the two equal at the design viewport. The two 44pt touch targets are
+     deliberately NOT in that set: .fader-input carries its own hit area
+     because <input> cannot host a pseudo-element, and the ::after overlays
+     already use max(100%, 44px) so a shrinking visual keeps its 44pt. */
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
