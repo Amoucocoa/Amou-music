@@ -64,23 +64,31 @@
     --orange:    #C97A16;
     --red:       #C8362C;
 
-    /* Water backdrop. ONE hue, carried entirely by --accent-h, so the whole
-       field re-tints with the accent slider instead of just the spark. Light
-       and depth are carried by VALUE, and those per-stop S/L values are
-       deliberately NOT tied to --accent-s/--accent-l: the on-gradient content
-       colours (--on-1, --track-bg, --hairline) are tuned against this exact
-       value ramp for legibility. Letting the background desaturate with the
-       accent would collapse that contrast relationship. Opacity rides on the
-       gradient stops, so these stay solid colours. */
+    /* Water backdrop. The whole field follows ALL THREE accent components, not
+       just the hue — otherwise dragging lightness or saturation would only
+       repaint the bottom-left spark, which is what it used to do.
+
+       Each stop's S/L is an OFFSET FROM the theme's accent-lightness default
+       plus a saturation SCALE of the accent, chosen so that at the shipped
+       defaults these evaluate to exactly the authored values (light: 29/93,
+       37/85, 32/75; dark: 64/4, 61/20, 68/12). The relative light-to-dark
+       ramp — the thing the on-gradient content colours (--on-1, --track-bg,
+       --hairline) are tuned against — therefore survives any slider position.
+
+       The clamp() on lightness is the legibility guarantee, and it is why the
+       offsets are signed per theme: the light palette must stay light for its
+       dark text, the dark palette must stay dark for its white text. Push the
+       lightness slider to either end and the background saturates at the
+       clamp instead of dragging the text contrast down with it. */
     /* Vignette strength multiplier. Declared ONCE here (not per theme) so the
        two palettes keep their own authored alpha and this only scales it —
        100% means "whatever this theme's vignette normally is". */
     --vig-k:       1;
-    --water-base:  hsl(var(--accent-h) 29% 93%);
-    --water-1:     hsl(var(--accent-h) 37% 85%);
-    --water-2:     hsl(var(--accent-h) 32% 75%);
+    --water-base:  hsl(var(--accent-h) calc(var(--accent-s) * 0.34) clamp(70%, calc(var(--accent-l) + 64%), 100%));
+    --water-1:     hsl(var(--accent-h) calc(var(--accent-s) * 0.44) clamp(58%, calc(var(--accent-l) + 56%), 100%));
+    --water-2:     hsl(var(--accent-h) calc(var(--accent-s) * 0.38) clamp(46%, calc(var(--accent-l) + 46%), 100%));
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-    --water-vig:   hsl(var(--accent-h) 54% 19% / calc(0.20 * var(--vig-k)));
+    --water-vig:   hsl(var(--accent-h) calc(var(--accent-s) * 0.63) 19% / calc(0.20 * var(--vig-k)));
     --seg-ink:     #06120D;
 
     /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
@@ -133,11 +141,11 @@
     --orange:    #FFB340;
     --red:       #FF5C4D;
 
-    --water-base:  hsl(var(--accent-h) 64% 4%);
-    --water-1:     hsl(var(--accent-h) 61% 20%);
-    --water-2:     hsl(var(--accent-h) 68% 12%);
+    --water-base:  hsl(var(--accent-h) calc(var(--accent-s) * 0.86) clamp(2%, calc(var(--accent-l) - 49%), 12%));
+    --water-1:     hsl(var(--accent-h) calc(var(--accent-s) * 0.82) clamp(10%, calc(var(--accent-l) - 33%), 32%));
+    --water-2:     hsl(var(--accent-h) calc(var(--accent-s) * 0.92) clamp(6%, calc(var(--accent-l) - 41%), 24%));
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-    --water-vig:   hsl(var(--accent-h) 30% 2% / calc(0.78 * var(--vig-k)));
+    --water-vig:   hsl(var(--accent-h) calc(var(--accent-s) * 0.41) 2% / calc(0.78 * var(--vig-k)));
     --seg-ink:     #FFFFFF;
     --bg:          rgba(9, 20, 16, 0.70);
     --fill:        rgba(255, 255, 255, 0.10);
