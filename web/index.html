@@ -72,11 +72,15 @@
        value ramp for legibility. Letting the background desaturate with the
        accent would collapse that contrast relationship. Opacity rides on the
        gradient stops, so these stay solid colours. */
+    /* Vignette strength multiplier. Declared ONCE here (not per theme) so the
+       two palettes keep their own authored alpha and this only scales it —
+       100% means "whatever this theme's vignette normally is". */
+    --vig-k:       1;
     --water-base:  hsl(var(--accent-h) 29% 93%);
     --water-1:     hsl(var(--accent-h) 37% 85%);
     --water-2:     hsl(var(--accent-h) 32% 75%);
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-    --water-vig:   hsl(var(--accent-h) 54% 19% / 0.20);
+    --water-vig:   hsl(var(--accent-h) 54% 19% / calc(0.20 * var(--vig-k)));
     --seg-ink:     #06120D;
 
     /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
@@ -133,7 +137,7 @@
     --water-1:     hsl(var(--accent-h) 61% 20%);
     --water-2:     hsl(var(--accent-h) 68% 12%);
     --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-    --water-vig:   hsl(var(--accent-h) 30% 2% / 0.78);
+    --water-vig:   hsl(var(--accent-h) 30% 2% / calc(0.78 * var(--vig-k)));
     --seg-ink:     #FFFFFF;
     --bg:          rgba(9, 20, 16, 0.70);
     --fill:        rgba(255, 255, 255, 0.10);
@@ -1093,11 +1097,14 @@
   <svg class="water-svg" viewBox="0 0 1200 1200" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="amouWater" x="-14%" y="-14%" width="128%" height="128%" color-interpolation-filters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.0052 0.0071" numOctaves="2" seed="9" result="noise"/>
+        <!-- baseFrequency / numOctaves force a full noise REGENERATION, so the
+             settings panel writes them on pointer-release only — see the
+             water-params block. scale is just a re-filter and stays live. -->
+        <feTurbulence id="waterNoise" type="fractalNoise" baseFrequency="0.0052 0.0071" numOctaves="2" seed="9" result="noise"/>
         <!-- dx/dy are driven by GSAP (AmuAnim.water). No SMIL here on purpose:
              two engines writing the same attributes is a guaranteed race. -->
         <feOffset in="noise" dx="0" dy="0" result="flow"/>
-        <feDisplacementMap in="SourceGraphic" in2="flow" scale="130" xChannelSelector="R" yChannelSelector="G"/>
+        <feDisplacementMap id="waterWarp" in="SourceGraphic" in2="flow" scale="130" xChannelSelector="R" yChannelSelector="G"/>
       </filter>
 
       <radialGradient id="wgLight">
@@ -1301,6 +1308,45 @@
     <input type="range" id="bgSpeed" class="setting-slider" min="0" max="200" step="5" value="100"
            aria-describedby="bgSpeedNote">
     <p class="setting-note" id="bgSpeedNote">拖到最左即静止背景</p>
+  </div>
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="waterWarpSlider">背景扭曲</label>
+      <output class="setting-value" id="waterWarpValue" for="waterWarpSlider">100%</output>
+    </div>
+    <input type="range" id="waterWarpSlider" class="setting-slider" min="0" max="300" step="5" value="100"
+           aria-describedby="waterWarpNote">
+    <p class="setting-note" id="waterWarpNote">拖到最左背景完全平直，最右强烈扭曲</p>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="waterRippleSlider">背景波纹</label>
+      <output class="setting-value" id="waterRippleValue" for="waterRippleSlider">50%</output>
+    </div>
+    <input type="range" id="waterRippleSlider" class="setting-slider" min="0" max="100" step="1" value="50"
+           aria-describedby="waterRippleNote">
+    <p class="setting-note" id="waterRippleNote">左为大块涌动，右为细密涟漪</p>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="waterOctavesSlider">背景细节</label>
+      <output class="setting-value" id="waterOctavesValue" for="waterOctavesSlider">2</output>
+    </div>
+    <input type="range" id="waterOctavesSlider" class="setting-slider" min="1" max="4" step="1" value="2"
+           aria-describedby="waterOctavesNote">
+    <p class="setting-note" id="waterOctavesNote">分形层数，越高越细腻也越吃性能</p>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="waterVignetteSlider">背景暗角</label>
+      <output class="setting-value" id="waterVignetteValue" for="waterVignetteSlider">100%</output>
+    </div>
+    <input type="range" id="waterVignetteSlider" class="setting-slider" min="0" max="200" step="5" value="100"
+           aria-describedby="waterVignetteNote">
+    <p class="setting-note" id="waterVignetteNote">压暗四边以托住文字，拖到最左则完全去掉</p>
   </div>
 
   <button class="sheet-done" id="settingsDone" type="button">完成</button>
@@ -2033,6 +2079,114 @@ window.AmuTheme = (function () {
     });
   }
 
+  /* ---- water parameters ------------------------------------------------
+     Four axes of the fluid backdrop. Warp and vignette are cheap — a filter
+     re-run and a CSS custom property — so they track the drag live.
+     baseFrequency and numOctaves force feTurbulence to REGENERATE the whole
+     noise field, which is exactly the cost the "build the field once" design
+     in the stylesheet avoids; those two only write on pointer-release, while
+     their readouts still follow the drag so the control never feels dead. */
+  var waterNoise = document.getElementById('waterNoise');
+  var waterWarpNode = document.getElementById('waterWarp');
+  var warpEl = document.getElementById('waterWarpSlider');
+  var rippleEl = document.getElementById('waterRippleSlider');
+  var octavesEl = document.getElementById('waterOctavesSlider');
+  var vignetteEl = document.getElementById('waterVignetteSlider');
+  var warpOut = document.getElementById('waterWarpValue');
+  var rippleOut = document.getElementById('waterRippleValue');
+  var octavesOut = document.getElementById('waterOctavesValue');
+  var vignetteOut = document.getElementById('waterVignetteValue');
+
+  var WARP_DEF = 100, RIPPLE_DEF = 50, OCTAVES_DEF = 2, VIGNETTE_DEF = 100;
+  var WARP_BASE = 130;                            /* feDisplacementMap@scale as authored */
+  var FREQ_X = 0.0052, FREQ_Y = 0.0071;          /* feTurbulence@baseFrequency as authored */
+
+  function readWater(key, def, lo, hi) {
+    try {
+      var raw = localStorage.getItem(key);
+      var n = raw === null ? NaN : Number(raw);
+      return isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+    } catch (e) { return def; }
+  }
+
+  function writeWater(key, n) {
+    try { localStorage.setItem(key, String(n)); } catch (e) { /* private mode */ }
+  }
+
+  function applyWarp(pct) {
+    if (warpEl) warpEl.value = String(pct);
+    if (warpOut) warpOut.textContent = Math.round(pct) + '%';
+    if (waterWarpNode) waterWarpNode.setAttribute('scale', WARP_BASE * pct / 100);
+  }
+
+  /* Exponential, so both ends sit equally far from the authored value and
+     50% is exactly 1x — the shipped 0.0052 / 0.0071. A linear map would
+     make the fine end far too noisy and the coarse end barely different. */
+  function applyRipple(pct) {
+    if (rippleEl) rippleEl.value = String(pct);
+    if (rippleOut) rippleOut.textContent = Math.round(pct) + '%';
+    if (waterNoise) {
+      var m = Math.pow(2, ((pct - 50) / 50) * 1.5);
+      waterNoise.setAttribute('baseFrequency', (FREQ_X * m) + ' ' + (FREQ_Y * m));
+    }
+  }
+
+  function applyOctaves(n) {
+    if (octavesEl) octavesEl.value = String(n);
+    if (octavesOut) octavesOut.textContent = String(n);
+    if (waterNoise) waterNoise.setAttribute('numOctaves', String(n));
+  }
+
+  function applyVignette(pct) {
+    if (vignetteEl) vignetteEl.value = String(pct);
+    if (vignetteOut) vignetteOut.textContent = Math.round(pct) + '%';
+    var el = document.documentElement;
+    if (pct === VIGNETTE_DEF) el.style.removeProperty('--vig-k');
+    else el.style.setProperty('--vig-k', String(pct / 100));
+  }
+
+  /* Cheap pair: live on every input frame, persisted on release. */
+  if (warpEl) {
+    warpEl.addEventListener('input', function () { applyWarp(Number(warpEl.value)); });
+    warpEl.addEventListener('change', function () {
+      writeWater('amou.settings.waterWarp', Number(warpEl.value));
+    });
+  }
+  if (vignetteEl) {
+    vignetteEl.addEventListener('input', function () { applyVignette(Number(vignetteEl.value)); });
+    vignetteEl.addEventListener('change', function () {
+      writeWater('amou.settings.waterVignette', Number(vignetteEl.value));
+    });
+  }
+
+  /* Expensive pair: readout follows the drag, the attribute waits. */
+  if (rippleEl) {
+    rippleEl.addEventListener('input', function () {
+      if (rippleOut) rippleOut.textContent = Math.round(Number(rippleEl.value)) + '%';
+    });
+    rippleEl.addEventListener('change', function () {
+      var v = Number(rippleEl.value);
+      applyRipple(v);
+      writeWater('amou.settings.waterRipple', v);
+    });
+  }
+  if (octavesEl) {
+    octavesEl.addEventListener('input', function () {
+      if (octavesOut) octavesOut.textContent = String(octavesEl.value);
+    });
+    octavesEl.addEventListener('change', function () {
+      var v = Number(octavesEl.value);
+      applyOctaves(v);
+      writeWater('amou.settings.waterOctaves', v);
+    });
+  }
+
+  function restoreWater() {
+    applyWarp(readWater('amou.settings.waterWarp', WARP_DEF, 0, 300));
+    applyRipple(readWater('amou.settings.waterRipple', RIPPLE_DEF, 0, 100));
+    applyOctaves(readWater('amou.settings.waterOctaves', OCTAVES_DEF, 1, 4));
+    applyVignette(readWater('amou.settings.waterVignette', VIGNETTE_DEF, 0, 200));
+  }
   /* The motion layer owns the backdrop now. Without GSAP there is nothing to
      drive (SMIL was removed to avoid two writers on one attribute), so the
      gradient simply stays static — the CSS keyframe drift still runs because
@@ -2200,6 +2354,7 @@ window.AmuTheme = (function () {
     if (readout) readout.textContent = Math.round(speed * 100) + '%';
     apply(speed);
     applyBlur(readBlur());
+    restoreWater();
     syncTheme();
   }
 
