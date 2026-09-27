@@ -102,6 +102,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._fail(500, "页面文件缺失")
         elif route == "/api/state":
             self._device_call(self.worker.state)
+        elif route == "/api/outputs":
+            self._device_call(self.worker.outputs)
         elif route in STATIC_FILES:
             try:
                 body = (WEB_DIR / STATIC_FILES[route]).read_bytes()
@@ -126,10 +128,19 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_mute(payload)
         elif route == "/api/playback":
             self._handle_playback(payload)
+        elif route == "/api/output":
+            self._handle_output(payload)
         else:
             self._fail(404, "接口不存在")
 
     # -- payload validation ----------------------------------------------
+    def _handle_output(self, payload: dict) -> None:
+        device_id = payload.get("id")
+        if not isinstance(device_id, str) or not device_id.strip():
+            self._fail(400, "id 必须是非空字符串")
+            return
+        self._device_call(self.worker.set_output, device_id.strip())
+
     def _handle_volume(self, payload: dict) -> None:
         has_value = "value" in payload
         has_delta = "delta" in payload

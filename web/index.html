@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default" id="statusBarStyle">
 <meta name="apple-mobile-web-app-title" content="Amou Music">
 <title>Amou Music · 局域网播放遥控器</title>
-<link rel="icon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%230B8A4B"><rect x="2" y="4" width="20" height="16" rx="4"/><circle cx="8" cy="12" r="3" fill="%23fff"/><circle cx="16" cy="12" r="3" fill="%23fff"/><path d="M12 9v6" stroke="%23fff" stroke-width="2"/></svg>'>
+<link rel="icon" id="favicon" type="image/svg+xml" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%230B8A4B"><rect x="2" y="4" width="20" height="16" rx="4"/><circle cx="8" cy="12" r="3" fill="%23fff"/><circle cx="16" cy="12" r="3" fill="%23fff"/><path d="M12 9v6" stroke="%23fff" stroke-width="2"/></svg>'>
 <link rel="manifest" href='data:application/manifest+json,{"name":"Amou Music Remote","short_name":"Amou","start_url":"/","display":"standalone","background_color":"%23E9F3ED","theme_color":"%23E9F3ED"}'>
 <script>
 /* Resolve the theme before the stylesheet is parsed, so a dark-mode user
@@ -40,15 +40,23 @@
     --on-3:      rgba(6, 40, 28, 0.36);
     --glyph:     #06120D;
     --track-bg:  rgba(20, 80, 58, 0.16);
-    --track-fill: rgba(11, 138, 75, 0.85);
+    --track-fill: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.85);
     --hairline:  rgba(20, 80, 58, 0.12);
     --chip:      rgba(255, 255, 255, 0.55);
     --chip-ink:  #06120D;
     --sleeve:    rgba(14, 52, 38, 0.20);
 
-    --tint:      #0B8A4B;
-    --tint-soft: rgba(11, 138, 75, 0.14);
-    --green:     #12A15E;
+    /* Accent is authored as three HSL components so the settings sliders can
+       drive it. Everything downstream derives from these three numbers, so a
+       hue change re-tints the slider fill, the play button, the brand mark,
+       the status LED and the water highlight together.
+       Defaults: hsl(150, 85%, 29%) = #0B8A4B. */
+    --accent-h:  150;
+    --accent-s:  85%;
+    --accent-l:  29%;
+    --tint:      hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+    --tint-soft: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.14);
+    --green:     hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 8%));
     --orange:    #C97A16;
     --red:       #C8362C;
 
@@ -58,7 +66,7 @@
     --water-base:  #E9F3ED;
     --water-1:     #C9E6D6;
     --water-2:     #A9D3BE;
-    --water-3:     #0B8A4B;
+    --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
     --water-vig:   rgba(22, 74, 56, 0.20);
     --seg-ink:     #06120D;
 
@@ -91,22 +99,26 @@
     --on-3:      rgba(255, 255, 255, 0.34);
     --glyph:     #FFFFFF;
     --track-bg:  rgba(255, 255, 255, 0.22);
-    --track-fill: rgba(228, 248, 238, 0.88);
+    --track-fill: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.92);
     --hairline:  rgba(255, 255, 255, 0.14);
     --chip:      rgba(255, 255, 255, 0.16);
     --chip-ink:  #FFFFFF;
     --sleeve:    rgba(0, 10, 7, 0.34);
 
-    --tint:      #2EE06A;
-    --tint-soft: rgba(46, 224, 106, 0.18);
-    --green:     #2EE06A;
+    /* Only the three components are overridden; --tint / --tint-soft /
+       --green re-derive from them because custom properties substitute at
+       computed-value time on the same element.
+       Defaults: hsl(140, 74%, 53%) = #2EE06A. */
+    --accent-h:  140;
+    --accent-s:  74%;
+    --accent-l:  53%;
     --orange:    #FFB340;
     --red:       #FF5C4D;
 
     --water-base:  #04120D;
     --water-1:     #14523E;
     --water-2:     #0A3527;
-    --water-3:     #2EE06A;
+    --water-3:     hsl(var(--accent-h) var(--accent-s) var(--accent-l));
     --water-vig:   rgba(0, 7, 4, 0.78);
     --seg-ink:     #FFFFFF;
     --bg:          rgba(9, 20, 16, 0.70);
@@ -843,6 +855,104 @@
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
   }
 
+  /* --- Output device select --- */
+  .select-wrap { position: relative; }
+
+  .setting-select {
+    width: 100%;
+    height: 44px;
+    padding: 0 34px 0 13px;
+    border: none;
+    border-radius: 12px;
+    background: var(--fill);
+    color: var(--on-1);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    text-overflow: ellipsis;
+    transition: background-color 0.2s var(--ease);
+  }
+  .setting-select:disabled { opacity: 0.5; cursor: default; }
+  .setting-select option { background: var(--bg); color: var(--on-1); }
+
+  .select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px; height: 8px;
+    margin-top: -5px;
+    border-right: 1.8px solid var(--on-3);
+    border-bottom: 1.8px solid var(--on-3);
+    transform: rotate(45deg);
+    pointer-events: none;
+  }
+
+  /* --- Accent colour (HSL) --- */
+  .accent-preview {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25),
+                inset 0 0 0 1px var(--hairline);
+    flex-shrink: 0;
+  }
+
+  .accent-sliders { display: flex; flex-direction: column; gap: 8px; }
+
+  .accent-row {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr) 46px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .accent-row label {
+    font-size: 13px;
+    color: var(--on-2);
+    font-weight: 500;
+  }
+
+  .accent-num {
+    font-size: 12.5px;
+    color: var(--on-3);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The three tracks encode the colour space they navigate, so the control
+     explains itself without any extra chrome. */
+  .accent-range::-webkit-slider-runnable-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--accent-track, var(--track-bg));
+  }
+  .accent-range::-moz-range-track {
+    height: 8px;
+    border-radius: 4px;
+    background: var(--accent-track, var(--track-bg));
+  }
+  .accent-range::-webkit-slider-thumb {
+    width: 20px; height: 20px;
+    margin-top: -6px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+  .accent-range::-moz-range-thumb {
+    width: 20px; height: 20px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+  }
+
+  .accent-hue::-webkit-slider-runnable-track,
+  .accent-hue::-moz-range-track {
+    background: linear-gradient(to right,
+      hsl(0 80% 50%), hsl(60 80% 50%), hsl(120 80% 50%),
+      hsl(180 80% 50%), hsl(240 80% 50%), hsl(300 80% 50%), hsl(360 80% 50%));
+  }
+
   .sheet-done {
     display: block;
     width: 100%;
@@ -1145,6 +1255,41 @@
       <button class="seg" type="button" role="radio" aria-checked="false" data-theme-choice="dark">深色</button>
       <button class="seg" type="button" role="radio" aria-checked="true" data-theme-choice="auto">自适应</button>
     </div>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <label for="outputSelect">输出设备</label>
+    </div>
+    <div class="select-wrap">
+      <select id="outputSelect" class="setting-select" aria-describedby="outputNote"></select>
+    </div>
+    <p class="setting-note" id="outputNote">切换会同时改写系统三种默认角色</p>
+  </div>
+
+  <div class="setting-row">
+    <div class="setting-head">
+      <span class="setting-label">强调色</span>
+      <span class="accent-preview" id="accentPreview" aria-hidden="true"></span>
+    </div>
+    <div class="accent-sliders">
+      <div class="accent-row">
+        <label for="accentHue">色相</label>
+        <input type="range" id="accentHue" class="setting-slider accent-range accent-hue" min="0" max="360" step="1" value="150">
+        <output class="accent-num" id="accentHueVal" for="accentHue">150°</output>
+      </div>
+      <div class="accent-row">
+        <label for="accentSat">饱和度</label>
+        <input type="range" id="accentSat" class="setting-slider accent-range" min="0" max="100" step="1" value="85">
+        <output class="accent-num" id="accentSatVal" for="accentSat">85%</output>
+      </div>
+      <div class="accent-row">
+        <label for="accentLight">明度</label>
+        <input type="range" id="accentLight" class="setting-slider accent-range" min="6" max="92" step="1" value="29">
+        <output class="accent-num" id="accentLightVal" for="accentLight">29%</output>
+      </div>
+    </div>
+    <p class="setting-note">同时影响滑块、播放键、状态灯与背景高光</p>
   </div>
 
   <div class="setting-row">
@@ -1821,6 +1966,14 @@ window.AmuTheme = (function () {
   var readout = document.getElementById('bgSpeedValue');
   var segs = document.querySelectorAll('[data-theme-choice]');
   var Theme = window.AmuTheme;
+  var outputSel = document.getElementById('outputSelect');
+  var hueEl = document.getElementById('accentHue');
+  var satEl = document.getElementById('accentSat');
+  var lightEl = document.getElementById('accentLight');
+  var hueOut = document.getElementById('accentHueVal');
+  var satOut = document.getElementById('accentSatVal');
+  var lightOut = document.getElementById('accentLightVal');
+  var outputNote = document.getElementById('outputNote');
   var motion = window.matchMedia('(prefers-reduced-motion: reduce)');
   var timer = null;
 
@@ -1842,6 +1995,159 @@ window.AmuTheme = (function () {
      the gsap-driven class is never added. */
   function apply(speed) {
     if (window.AmuAnim) window.AmuAnim.water(speed);
+  }
+
+  /* ---- output device ------------------------------------------------- */
+  function api(path, body) {
+    return fetch(path, {
+      cache: 'no-store',
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+        return data;
+      });
+    });
+  }
+
+  function loadOutputs() {
+    if (!outputSel) return;
+    outputSel.disabled = true;
+    outputSel.textContent = '读取中…';
+    api('/api/outputs').then(function (data) {
+      outputSel.textContent = '';
+      (data.outputs || []).forEach(function (item) {
+        var opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = item.name;
+        if (item.current) opt.selected = true;
+        outputSel.appendChild(opt);
+      });
+      if (!(data.outputs || []).length) {
+        outputSel.textContent = '没有可用的输出设备';
+      }
+      outputSel.disabled = false;
+    }).catch(function (err) {
+      outputSel.textContent = '读取失败';
+      outputSel.disabled = true;
+      if (outputNote) outputNote.textContent = err.message || '读取输出设备失败';
+    }).then(function () {
+      if (outputNote) {
+        outputNote.textContent = '切换会同时改写系统三种默认角色';
+      }
+    });
+  }
+
+  if (outputSel) {
+    outputSel.addEventListener('change', function () {
+      var id = outputSel.value;
+      if (!id) return;
+      outputSel.disabled = true;
+      api('/api/output', { id: id }).then(function () {
+        if (outputNote) outputNote.textContent = '已切换，正在同步音量…';
+      }).catch(function (err) {
+        if (outputNote) outputNote.textContent = err.message || '切换失败';
+      }).then(function () {
+        outputSel.disabled = false;
+        loadOutputs();
+      });
+    });
+  }
+
+  /* ---- accent colour (HSL) ------------------------------------------- */
+  var root = document.documentElement;
+  var acc = { h: hueEl, s: satEl, l: lightEl };
+  var accOut = { h: hueOut, s: satOut, l: lightOut };
+  var ACC_KEY = 'amou.settings.accent';
+
+  function cssAccent() {
+    var cs = getComputedStyle(root);
+    return {
+      h: parseFloat(cs.getPropertyValue('--accent-h')) || 150,
+      s: parseFloat(cs.getPropertyValue('--accent-s')) || 85,
+      l: parseFloat(cs.getPropertyValue('--accent-l')) || 29
+    };
+  }
+
+  /* s and l arrive from the sliders as PERCENTAGES (0-100); this converts to
+     the 0-1 fractions the formula needs. Getting this wrong silently emits
+     garbage hex, which previously corrupted the favicon data URI. */
+  function hslToHex(h, sPct, lPct) {
+    var s = sPct / 100, l = lPct / 100;
+    var a = s * Math.min(l, 1 - l);
+    var f = function (n) {
+      var k = (n + h / 30) % 12;
+      var c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+      return Math.round(255 * c).toString(16).padStart(2, '0');
+    };
+    return (f(0) + f(8) + f(4)).toUpperCase();
+  }
+
+  function paintAccent(a, custom) {
+    root.style.setProperty('--accent-h', a.h);
+    var hex = hslToHex(a.h, a.s, a.l);
+    var icon = document.getElementById('favicon');
+    if (icon && /^[0-9A-F]{6}$/.test(hex)) {
+      icon.setAttribute('href', icon.getAttribute('href').replace(/%23[0-9A-Fa-f]{6}/, '%23' + hex));
+    }
+    root.style.setProperty('--accent-s', a.s + '%');
+    root.style.setProperty('--accent-l', a.l + '%');
+    acc.h.value = String(a.h);
+    acc.s.value = String(a.s);
+    acc.l.value = String(a.l);
+    accOut.h.textContent = Math.round(a.h) + '°';
+    accOut.s.textContent = Math.round(a.s) + '%';
+    accOut.l.textContent = Math.round(a.l) + '%';
+    // Saturation and lightness tracks preview the space they navigate.
+    acc.s.style.setProperty('--accent-track',
+      'linear-gradient(to right, hsl(' + a.h + ' 0% ' + a.l + '%), hsl(' + a.h + ' 100% ' + a.l + '%))');
+    acc.l.style.setProperty('--accent-track',
+      'linear-gradient(to right, #000, hsl(' + a.h + ' ' + a.s + '% 50%), #fff)');
+    if (custom) {
+      try { localStorage.setItem(ACC_KEY, JSON.stringify(a)); } catch (e) { /* private mode */ }
+    }
+  }
+
+  function currentAccent() {
+    return {
+      h: Number(acc.h.value), s: Number(acc.s.value), l: Number(acc.l.value)
+    };
+  }
+
+  function bindAccent(el, field) {
+    if (!el) return;
+    el.addEventListener('input', function () {
+      var a = currentAccent();
+      paintAccent(a, true);
+    });
+  }
+  bindAccent(acc.h); bindAccent(acc.s); bindAccent(acc.l);
+
+  function restoreAccent() {
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(ACC_KEY) || 'null'); } catch (e) { saved = null; }
+    if (saved && typeof saved === 'object') {
+      paintAccent({
+        h: Number(saved.h) || 150, s: Number(saved.s) || 85, l: Number(saved.l) || 29
+      }, true);
+    } else {
+      /* Never customised: follow the active theme's own defaults. */
+      root.style.removeProperty('--accent-h');
+      root.style.removeProperty('--accent-s');
+      root.style.removeProperty('--accent-l');
+      var d = cssAccent();
+      paintAccent(d, false);
+    }
+  }
+
+  if (Theme && Theme.onChange) {
+    Theme.onChange(function () {
+      var saved = null;
+      try { saved = localStorage.getItem(ACC_KEY); } catch (e) { saved = null; }
+      if (!saved) restoreAccent();
+    });
   }
 
   function sync() {
@@ -1893,6 +2199,7 @@ window.AmuTheme = (function () {
       backdrop.classList.add('show');
     }
     if (sheet) sheet.focus();
+    loadOutputs();
   }
 
   function close() {
@@ -1927,6 +2234,7 @@ window.AmuTheme = (function () {
     motion.addListener(function () { apply(readSpeed()); });
   }
 
+  restoreAccent();
   sync();
 })();
 </script>

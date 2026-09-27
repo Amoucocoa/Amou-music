@@ -101,6 +101,12 @@ class DeviceWorker:
     def playback(self, action: str) -> dict:
         return self.submit(_playback, action)
 
+    def outputs(self) -> dict:
+        return self.submit(_list_outputs)
+
+    def set_output(self, device_id: str) -> dict:
+        return self.submit(_set_output, device_id)
+
 
 # -- implementations, all executed on the worker thread -------------------
 
@@ -126,12 +132,80 @@ def _read_state() -> dict:
         "volume": round(dev.volume_percent / 100.0, 4),
         "muted": bool(dev.EndpointVolume.GetMute()),
         "device": dev.FriendlyName or "未知设备",
+        "device_id": _endpoint_id(dev),
         # Reserved for a future SystemMediaTransportControls integration: the
         # WinRT projection Python needs for this is not available on this
         # machine (no .NET SDK, no Windows SDK, no matching PyPI package), so
         # v1 always reports null and the UI hides the track slot.
         "metadata": None,
     }
+
+
+def _endpoint_id(dev) -> str:
+    """AudioDevice exposes ``id`` lowercase; older shapes used ``ID``."""
+    return getattr(dev, "id", None) or getattr(dev, "ID", "") or ""
+
+
+def _list_outputs() -> dict:
+    """Every ACTIVE render endpoint -- the list a user can pick between.
+
+    Capture endpoints are excluded: this remote only drives playback volume.
+    Inactive devices are excluded too, since Windows refuses to make them the
+    default and the tap would silently do nothing.
+    """
+    from pycaw.constants import DEVICE_STATE, EDataFlow
+    from pycaw.pycaw import AudioUtilities
+
+    try:
+        devices = AudioUtilities.GetAllDevices(
+            data_flow=EDataFlow.eRender.value,
+            device_state=DEVICE_STATE.ACTIVE.value,
+        )
+    except Exception as exc:
+        raise DeviceError("无法枚举音频输出设备") from exc
+
+    try:
+        current = _endpoint_id(AudioUtilities.GetSpeakers())
+    except Exception:
+        current = ""
+
+    outputs = []
+    for dev in devices or []:
+        name = dev.FriendlyName or "未知设备"
+        outputs.append({
+            "id": _endpoint_id(dev),
+            "name": name,
+            "current": _endpoint_id(dev) == current,
+        })
+    return {"outputs": outputs, "current": current}
+
+
+def _set_output(device_id: str) -> dict:
+    """Move the default render endpoint.
+
+    All three roles are reassigned. Windows keeps a separate default per
+    role, so setting only eConsole would leave media apps on the old device
+    -- which is exactly the "my volume slider changed nothing" failure.
+    """
+    from pycaw.constants import ERole
+    from pycaw.pycaw import AudioUtilities
+
+    if not device_id:
+        raise ValueError("缺少输出设备 id")
+
+    known = {item["id"] for item in _list_outputs()["outputs"]}
+    if device_id not in known:
+        raise ValueError("该输出设备当前不可用")
+
+    try:
+        AudioUtilities.SetDefaultDevice(
+            device_id,
+            [ERole.eConsole, ERole.eMultimedia, ERole.eCommunications],
+        )
+    except Exception as exc:
+        raise DeviceError("切换输出设备失败，可能被系统策略阻止") from exc
+
+    return _read_state()
 
 
 def _clamp(value: float, low: float, high: float) -> float:
