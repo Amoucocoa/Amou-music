@@ -195,6 +195,16 @@
        outgrows the viewport the box simply grows and the page scrolls —
        a fixed height plus justify-content would clip the top instead. */
     min-height: 100%;
+
+    /* Everything on the page EXCEPT the artwork, as a function of the
+       container's inline size. Least-squares fit over three measured
+       container widths (560/346/301 -> chrome 598/462/430) gives 63.6cqi +
+       242px. The artwork subtracts this from the viewport height, which is
+       what finally makes the block size an input to the layout instead of
+       an afterthought. The vh floor keeps the cover from collapsing to a
+       stamp on very short windows; below that the page scrolls, which is
+       the correct trade — an unreadable cover is worse than a scrollbar. */
+    --chrome: calc(63.6cqi + 242px);
     justify-content: center;
   }
 
@@ -273,7 +283,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: clamp(16px, 4.5cqi, 24px);
+    margin-bottom: clamp(10px, min(4.5cqi, 2.8dvh), 24px);
   }
 
   .brand {
@@ -353,15 +363,17 @@
   /* --- Artwork anchor ----------------------------------------------------
      A placeholder for real cover art. The SMTC integration point: when
      metadata arrives, swap the vinyl for the album image. -------------- */
-  /* The artwork is the only elastic block, so it absorbs every height
-     conflict. The surrounding chrome has a floor that scales with this
-     container (measured: ~75cqi + 132px) plus 36px of body padding, so cap
-     the artwork by whatever height is genuinely left over. The 40vh term
-     keeps it near the reference proportion when height is plentiful. */
+
   .art {
     position: relative;
-    width: 100%;
+    /* Normally the cover is as wide as the column. When the viewport cannot
+       afford that, it yields to the height budget instead — this is the one
+       elastic block, and it is what absorbs every height conflict. The floor
+       keeps it legible; margin-inline centres it once it is narrower than
+       the column, so the column edges stay flush with the text below. */
+    width: max(160px, min(100%, calc(100dvh - var(--chrome))));
     aspect-ratio: 1;
+    margin-inline: auto;
     border-radius: var(--r-art);
     overflow: hidden;
     background: var(--sleeve);
@@ -405,7 +417,7 @@
     align-items: center;
     justify-content: space-between;
     gap: clamp(13px, 4cqi, 20px);
-    margin-top: clamp(20px, 6.4cqi, 32px);
+    margin-top: clamp(12px, min(6.4cqi, 3.98dvh), 32px);
   }
 
   .track-text {
@@ -458,7 +470,7 @@
 
   /* --- Volume --- */
   .volume-block {
-    margin-top: clamp(23px, 7.5cqi, 38px);
+    margin-top: clamp(13px, min(7.5cqi, 4.67dvh), 38px);
   }
 
   .volume-readout {
@@ -571,7 +583,7 @@
     align-items: center;
     justify-content: center;
     gap: clamp(40px, 13.3cqi, 70px);
-    margin-top: clamp(23px, 7.5cqi, 38px);
+    margin-top: clamp(13px, min(7.5cqi, 4.67dvh), 38px);
   }
 
   .glyph {
@@ -605,7 +617,7 @@
     align-items: center;
     justify-content: center;
     gap: clamp(5px, 1.7cqi, 9px);
-    margin-top: clamp(23px, 7.5cqi, 38px);
+    margin-top: clamp(13px, min(7.5cqi, 4.67dvh), 38px);
     flex-wrap: wrap;
   }
 
@@ -642,7 +654,7 @@
     font-size: clamp(10.5px, 3.2cqi, 15px);
     line-height: 1.5;
     color: var(--on-3);
-    margin-top: clamp(18px, 5.8cqi, 29px);
+    margin-top: clamp(11px, min(5.8cqi, 3.61dvh), 29px);
   }
 
   /* --- Toast --- */
@@ -1006,28 +1018,7 @@
   }
   .sheet-done:active { transform: scale(0.98); opacity: 0.9; }
 
-  /* Short viewports: the fixed vertical rhythm (five stacked margins) is
-     what pushes the presets row off-screen. Tighten it so one-handed use on
-     a small phone keeps every control reachable without scrolling. */
-  @media (max-height: 760px) {
-    .track-block { margin-top: clamp(12px, 3.6cqi, 18px); }
-    .volume-block,
-    .transport,
-    .presets   { margin-top: clamp(14px, 4cqi, 22px); }
-    .footnote   { margin-top: clamp(10px, 3cqi, 15px); }
-  }
 
-  /* Single column at full width: the art sits at its 560px ceiling while
-     the viewport may only be ~1000px tall, so the same squeeze applies even
-     though the viewport itself is not "short". */
-  @media (min-width: 460px) and (max-height: 1100px) {
-    .topbar      { margin-bottom: clamp(12px, 3.4cqi, 18px); }
-    .track-block { margin-top: clamp(13px, 3.8cqi, 20px); }
-    .volume-block,
-    .transport,
-    .presets   { margin-top: clamp(15px, 4.2cqi, 24px); }
-    .footnote   { margin-top: clamp(11px, 3.2cqi, 16px); }
-  }
 
   /* --- Touch targets ---------------------------------------------------
      Visual size and hit area are deliberately decoupled. Four controls read
