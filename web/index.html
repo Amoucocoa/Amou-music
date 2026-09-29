@@ -50,6 +50,7 @@
     --hairline:  hsl(var(--accent-h) 60% 20% / 0.12);
     --chip:      rgba(255, 255, 255, 0.55);
     --chip-ink:  hsl(var(--accent-h) 50% 5%);
+    --chip-hint: rgba(255, 255, 255, 0.30);
     --sleeve:    hsl(var(--accent-h) 58% 13% / 0.20);
 
     /* Accent is authored as three HSL components so the settings sliders can
@@ -130,6 +131,7 @@
     --hairline:  rgba(255, 255, 255, 0.14);
     --chip:      rgba(255, 255, 255, 0.16);
     --chip-ink:  #FFFFFF;
+    --chip-hint: rgba(255, 255, 255, 0.10);
     --sleeve:    hsl(var(--accent-h) 45% 2% / 0.34);
 
     /* Only the three components are overridden; --tint / --tint-soft /
@@ -637,10 +639,32 @@
     user-select: none;
     touch-action: manipulation;
     padding: 8px;
+    /* Already 50% — the plate only had nothing to fill. */
     border-radius: 50%;
-    transition: transform 0.18s var(--ease), opacity 0.18s var(--ease);
+    transition: transform 0.18s var(--ease), opacity 0.18s var(--ease),
+                background-color 0.18s var(--ease);
   }
   .glyph:active { transform: scale(0.88); opacity: 0.7; }
+
+  /* Press-only plate. At rest the transport row stays bare glyphs — the app's
+     rule is that controls float directly on the background — and this faint
+     disc surfaces only WHILE a key is being pressed, so the shape reads as a
+     press affordance rather than as permanent chrome.
+
+     :active alone, deliberately: hover would leave a plate parked under a
+     resting pointer, and :focus-visible would pin it on keyboard users long
+     after focus moved on. :active also needs no @media (hover: none) guard —
+     it is bound to the real press and clears the instant the finger lifts,
+     whereas emulated :hover latches on touch screens.
+
+     --chip-hint is deliberately weaker than --chip (the RESTING tint of the
+     mute and settings keys) so the plate never reads as a solid button. No
+     backdrop-filter: blur would tip it back over that line, and switching a
+     filter per press is repaint cost for no gain.
+
+     Background and transform are separate properties, so this coexists with
+     the GSAP-driven press scale. */
+  .glyph:active { background: var(--chip-hint); }
   .glyph svg { display: block; }
 
   .glyph-skip svg {
