@@ -499,12 +499,23 @@
          the pattern scales with the element. A fixed 4px period made the
          texture size-dependent: the same record showed 27 grooves on a 360px
          phone and 57 on a 1920px monitor, so the surface read as a different
-         material at every breakpoint. 3.2% of radius reproduces the 4px pitch
-         at the common ~125px radius and holds ~31 periods at ANY size. */
+         material at every breakpoint.
+
+         2.4% of radius = ~42 periods at ANY size, which is what makes the
+         exposed ring read as fine grooves rather than a few fat bands. The
+         floor is set by the SMALL end: at a 360px viewport the disc radius is
+         ~94px, so 2.4% lands on a 2.2px pitch. Below ~2px the dark line falls
+         under a device pixel and starts to shimmer as the disc turns, so this
+         is as fine as it goes without aliasing.
+
+         Contrast is deliberately low. The grooves are surface texture on a
+         record, not a graphic: at 0.22 black the dark line read as a printed
+         band and fought the artwork for attention. Halving it keeps the ring
+         legible as a disc while letting the cover stay the subject. */
       repeating-radial-gradient(circle,
-        rgba(255, 255, 255, 0.05) 0 0.8%,
-        rgba(0, 0, 0, 0.22) 0.8% 2.4%,
-        rgba(255, 255, 255, 0.03) 2.4% 3.2%),
+        rgba(255, 255, 255, 0.032) 0 0.6%,
+        rgba(0, 0, 0, 0.11) 0.6% 1.8%,
+        rgba(255, 255, 255, 0.018) 1.8% 2.4%),
       #0A0F0D;
     /* Symmetric for the same reason as .art-cover: this disc rotates too. */
     box-shadow:
