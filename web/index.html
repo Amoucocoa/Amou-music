@@ -508,14 +508,16 @@
          under a device pixel and starts to shimmer as the disc turns, so this
          is as fine as it goes without aliasing.
 
-         Contrast is deliberately low. The grooves are surface texture on a
-         record, not a graphic: at 0.22 black the dark line read as a printed
-         band and fought the artwork for attention. Halving it keeps the ring
-         legible as a disc while letting the cover stay the subject. */
+         Contrast is deliberately faint. The grooves are surface texture on a
+         record, not a graphic, and they can go quiet without costing anything:
+         a RADIAL pattern is invariant under rotation, so the grooves never
+         carried the turn - the conic sheen above does. At 0.22 black the dark
+         line read as a printed band and fought the artwork for attention; at
+         0.06 it is felt rather than seen, and the cover stays the subject. */
       repeating-radial-gradient(circle,
-        rgba(255, 255, 255, 0.032) 0 0.6%,
-        rgba(0, 0, 0, 0.11) 0.6% 1.8%,
-        rgba(255, 255, 255, 0.018) 1.8% 2.4%),
+        rgba(255, 255, 255, 0.020) 0 0.6%,
+        rgba(0, 0, 0, 0.06) 0.6% 1.8%,
+        rgba(255, 255, 255, 0.010) 1.8% 2.4%),
       #0A0F0D;
     /* Symmetric for the same reason as .art-cover: this disc rotates too. */
     box-shadow:
