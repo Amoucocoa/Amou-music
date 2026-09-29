@@ -429,16 +429,26 @@
      fades in over it, so a track whose artwork has not been cached yet still
      shows the disc rather than an empty frame. */
   .art-cover {
+    /* Deliberately the SAME geometry as .vinyl below: 66% of the sleeve,
+       centred, circular. The artwork is a picture disc -- it lives inside the
+       record, it does not replace the whole sleeve. */
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
+    top: 50%;
+    left: 50%;
+    width: 66%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
     object-fit: cover;
     opacity: 0;
-    transform: scale(1.02);
-    transition: opacity 0.45s var(--ease), transform 0.6s var(--ease);
+    box-shadow:
+      0 16px 36px rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+    /* Only opacity transitions. The rotation tween owns `transform`
+       outright; a transform transition here would fight it every frame. */
+    transition: opacity 0.45s var(--ease);
   }
-  .art.has-cover .art-cover { opacity: 1; transform: scale(1); }
+  .art.has-cover .art-cover { opacity: 1; }
   .art.has-cover .vinyl { opacity: 0; transition: opacity 0.3s var(--ease); }
 
   /* Pure-CSS vinyl: grooves, tinted label, spindle hole, and a raking
@@ -2336,17 +2346,24 @@ window.AmuTheme = (function () {
         translate that gets baked into a pixel `y` while yPercent stays 0 is
         exactly how the disc drifts off-centre. */
   var vinyl = document.querySelector('.vinyl');
+  var artCover = document.querySelector('.art-cover');
 
   mm.add('(prefers-reduced-motion: no-preference)', function () {
-    if (!vinyl) return;
-    g.to(vinyl, {
+    var spin = {
       rotation: 360,
       xPercent: -50,
       yPercent: -50,
       duration: 32,
       ease: 'none',
       repeat: -1
-    });
+    };
+    if (vinyl) g.to(vinyl, spin);
+    /* The artwork is a picture disc, so it turns with the record. Same
+       duration, ease and start time as .vinyl, so the two stay locked through
+       the cross-fade between them. Unlike the vinyl, whose rotation is only
+       legible through its conic sheen, the cover is not radially symmetric —
+       its turn is plainly visible, which is what sells it as a spinning disc. */
+    if (artCover) g.to(artCover, spin);
   });
   /* 5. Sheet. A timeline so the backdrop, the panel and the rows move as one
         gesture instead of three transitions that merely overlap. */

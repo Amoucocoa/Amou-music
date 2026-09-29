@@ -1,0 +1,7 @@
+- main [ref=f2e2]:
+  - generic [ref=f2e3]:
+    - generic [ref=f2e4]: Amou Music
+    - generic [ref=f2e10]:
+      - button "网络状态及输出设备" [ref=f2e11] [cursor=pointer]:
+        - generic [ref=f2e13]: 已离线
+      - button "设置" [ref=f2e14] [cursor=pointer]
