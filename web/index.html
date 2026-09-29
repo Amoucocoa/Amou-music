@@ -433,16 +433,24 @@
        centred, circular. The artwork is a picture disc -- it lives inside the
        record, it does not replace the whole sleeve. */
     position: absolute;
-    top: 50%;
-    left: 50%;
+    /* Centred WITHOUT transform: `inset:0` + `margin:auto` puts the box dead
+       centre in both axes, so the stylesheet contributes nothing to
+       `transform` and the rotation tween owns that property outright. */
+    inset: 0;
+    margin: auto;
     width: 66%;
     aspect-ratio: 1;
-    transform: translate(-50%, -50%);
     border-radius: 50%;
     object-fit: cover;
     opacity: 0;
+    /* The shadow MUST stay radially symmetric. It rides the rotation, so a
+       directional offset (the old `0 16px 36px`) swings once around per turn
+       and the disc reads as sliding off-centre even though its geometry never
+       moves. Measured: dark mass orbited ~15px while the disc held centre to
+       0.00px. Ambient + contact, both centred on the disc. */
     box-shadow:
-      0 16px 36px rgba(0, 0, 0, 0.45),
+      0 0 30px rgba(0, 0, 0, 0.38),
+      0 0 6px rgba(0, 0, 0, 0.20),
       inset 0 0 0 1px rgba(255, 255, 255, 0.07);
     /* Only opacity transitions. The rotation tween owns `transform`
        outright; a transform transition here would fight it every frame. */
@@ -455,10 +463,11 @@
      sheen so the disc reads as a physical object rather than a flat circle. */
   .vinyl {
     position: absolute;
-    top: 50%; left: 50%;
+    /* Same transform-free centring as .art-cover, for the same reason. */
+    inset: 0;
+    margin: auto;
     width: 66%;
     aspect-ratio: 1;
-    transform: translate(-50%, -50%);
     border-radius: 50%;
     background:
       conic-gradient(from 205deg,
@@ -473,8 +482,10 @@
         rgba(0, 0, 0, 0.22) 1px 3px,
         rgba(255, 255, 255, 0.03) 3px 4px),
       #0A0F0D;
+    /* Symmetric for the same reason as .art-cover: this disc rotates too. */
     box-shadow:
-      0 16px 36px rgba(0, 0, 0, 0.45),
+      0 0 30px rgba(0, 0, 0, 0.38),
+      0 0 6px rgba(0, 0, 0, 0.20),
       inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   }
 
@@ -2340,30 +2351,36 @@ window.AmuTheme = (function () {
         sheen on top. That is the real-world behaviour too — a record's light
         highlight is what tells you the disc is turning.
 
-        The element is centred with transform: translate(-50%,-50%), and GSAP
-        takes over the whole transform. xPercent/yPercent are stated EXPLICITLY
-        rather than left to GSAP's parsing of the existing value: a percentage
-        translate that gets baked into a pixel `y` while yPercent stays 0 is
-        exactly how the disc drifts off-centre. */
+        ONE owner for `transform`. The stylesheet centres the disc with
+        `inset:0; margin:auto` and never writes a transform, so the tween only
+        has to name `rotation`. The earlier version centred in CSS *and* asked
+        GSAP for `xPercent/yPercent: -50` -- two centring channels that agree
+        only as long as both are right, which is precisely the coupling that
+        produced drift. */
   var vinyl = document.querySelector('.vinyl');
   var artCover = document.querySelector('.art-cover');
 
   mm.add('(prefers-reduced-motion: no-preference)', function () {
-    var spin = {
-      rotation: 360,
-      xPercent: -50,
-      yPercent: -50,
-      duration: 32,
-      ease: 'none',
-      repeat: -1
+    /* A factory, not a shared literal: both discs get their own vars object so
+       neither tween can alias state into the other. `transformOrigin` is named
+       explicitly -- the disc turns about its own centre rather than relying on
+       an inherited default. */
+    var spin = function () {
+      return {
+        rotation: 360,
+        transformOrigin: '50% 50%',
+        duration: 32,
+        ease: 'none',
+        repeat: -1
+      };
     };
-    if (vinyl) g.to(vinyl, spin);
+    if (vinyl) g.to(vinyl, spin());
     /* The artwork is a picture disc, so it turns with the record. Same
        duration, ease and start time as .vinyl, so the two stay locked through
        the cross-fade between them. Unlike the vinyl, whose rotation is only
        legible through its conic sheen, the cover is not radially symmetric —
        its turn is plainly visible, which is what sells it as a spinning disc. */
-    if (artCover) g.to(artCover, spin);
+    if (artCover) g.to(artCover, spin());
   });
   /* 5. Sheet. A timeline so the backdrop, the panel and the rows move as one
         gesture instead of three transitions that merely overlap. */

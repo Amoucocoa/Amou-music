@@ -5,3 +5,7 @@ __pycache__/
 # scratch files from manual testing
 *.log
 *.err
+
+# Playwright CLI scratch: page snapshots and session state
+.playwright-cli/
+
