@@ -95,12 +95,11 @@
 
     /* Glass surfaces. These MUST stay translucent: backdrop-filter blurs
        whatever is painted behind the element, so an opaque colour here
-       silently neutralises the filter and the effect never appears. */
-    /* Unitless multiplier on every frosted surface's blur. 0 = plain
-       translucency, 1 = the authored values, 2 = double the frosting.
-       Each surface keeps its own base px value so the hierarchy between
-       them (sheet frosts hardest, the selected segment least) survives. */
-    --glass-blur:  1;
+       silently neutralises the filter and the effect never appears.
+
+       Each surface keeps its own authored blur radius, so the hierarchy
+       between them (the sheet frosts hardest, the selected segment least)
+       survives. */
     --bg:          rgba(242, 242, 247, 0.72);
     --fill:        rgba(255, 255, 255, 0.55);
     --seg-active:  rgba(255, 255, 255, 0.92);
@@ -370,8 +369,8 @@
     cursor: pointer;
     user-select: none;
     flex-shrink: 0;
-    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
     transition: transform 0.18s var(--ease);
   }
   .pilot-badge:active { transform: scale(0.95); }
@@ -499,8 +498,8 @@
     cursor: pointer;
     user-select: none;
     touch-action: manipulation;
-    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
     transition: transform 0.18s var(--ease), background-color 0.2s var(--ease),
                 color 0.2s var(--ease);
   }
@@ -712,8 +711,8 @@
     color: var(--chip-ink);
     font-size: 13.5px;
     font-weight: 500;
-    -webkit-backdrop-filter: saturate(180%) blur(calc(24px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(24px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    backdrop-filter: saturate(180%) blur(24px);
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -772,8 +771,8 @@
     cursor: pointer;
     user-select: none;
     touch-action: manipulation;
-    -webkit-backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(20px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
     transition: transform 0.18s var(--ease), background-color 0.2s var(--ease);
   }
   .icon-button:active { transform: scale(0.9); }
@@ -798,17 +797,41 @@
     margin: 0 auto;
     width: 100%;
     max-width: 520px;
+    /* Column so the scroll region can claim the leftover height. max-height is
+       dvh-relative and deliberately has NO px cap: a tall viewport lets the
+       panel grow to show every row without a scrollbar, a short one caps it
+       and scrolls. Anchoring stays bottom:0, so the 92dvh remainder shows the
+       backdrop above — the usual bottom-sheet read. */
+    display: flex;
+    flex-direction: column;
+    max-height: 92dvh;
     padding: 10px 22px calc(env(safe-area-inset-bottom) + 22px);
     border-radius: 24px 24px 0 0;
     background: var(--bg);
     color: var(--on-1);
     box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.28);
-    -webkit-backdrop-filter: saturate(180%) blur(calc(28px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(28px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(28px);
+    backdrop-filter: saturate(180%) blur(28px);
     transform: translateY(100%);
     transition: transform 0.42s var(--ease);
   }
   .sheet.show { transform: translateY(0); }
+
+  /* The scrolling region is an inner plain div on purpose. `.sheet` carries
+     the backdrop-filter, and letting the BLURRED element itself scroll risks
+     repaint artefacts; this way the blurred layer never scrolls. The grabber,
+     the title and the Done button all sit OUTSIDE it, so they stay put and
+     the close affordance is never something you have to scroll to find.
+
+     min-height:0 is what lets this flex child actually shrink — without it a
+     flex item refuses to go below its content size and the overflow escapes. */
+  .sheet-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    /* Stops the scroll being handed to the page behind at either end. */
+    overscroll-behavior: contain;
+  }
 
   .sheet[hidden],
   .sheet-backdrop[hidden] { display: none; }
@@ -826,17 +849,17 @@
     font-size: 20px;
     font-weight: 700;
     letter-spacing: -0.02em;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
   }
 
-  .setting-row + .setting-row { margin-top: 22px; }
+  .setting-row + .setting-row { margin-top: 14px; }
 
   .setting-head {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   .setting-head label {
     font-size: 15px;
@@ -853,7 +876,7 @@
   .setting-note {
     font-size: 12px;
     color: var(--on-3);
-    margin-top: 8px;
+    margin-top: 6px;
   }
 
   .setting-label {
@@ -870,8 +893,8 @@
     padding: 2px;
     border-radius: 12px;
     background: var(--fill);
-    -webkit-backdrop-filter: saturate(180%) blur(calc(16px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(16px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(16px);
+    backdrop-filter: saturate(180%) blur(16px);
   }
 
   .seg {
@@ -896,8 +919,8 @@
     background: var(--seg-active);
     color: var(--seg-ink);
     font-weight: 600;
-    -webkit-backdrop-filter: saturate(180%) blur(calc(12px * var(--glass-blur)));
-    backdrop-filter: saturate(180%) blur(calc(12px * var(--glass-blur)));
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    backdrop-filter: saturate(180%) blur(12px);
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
   }
 
@@ -1047,7 +1070,7 @@
     display: block;
     width: 100%;
     height: 50px;
-    margin-top: 22px;
+    margin-top: 16px;
     border: none;
     border-radius: 16px;
     background: var(--tint);
@@ -1291,108 +1314,101 @@
   <div class="sheet-grabber" aria-hidden="true"></div>
   <h2 class="sheet-title" id="settingsTitle">设置</h2>
 
-  <div class="setting-row">
-    <div class="setting-head">
-      <span class="setting-label" id="themeLabel">主题</span>
-    </div>
-    <div class="segmented" role="radiogroup" aria-labelledby="themeLabel">
-      <button class="seg" type="button" role="radio" aria-checked="false" data-theme-choice="light">浅色</button>
-      <button class="seg" type="button" role="radio" aria-checked="false" data-theme-choice="dark">深色</button>
-      <button class="seg" type="button" role="radio" aria-checked="true" data-theme-choice="auto">自适应</button>
-    </div>
-  </div>
-
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="outputSelect">输出设备</label>
-    </div>
-    <div class="select-wrap">
-      <select id="outputSelect" class="setting-select" aria-describedby="outputNote"></select>
-    </div>
-    <p class="setting-note" id="outputNote">切换会同时改写系统三种默认角色</p>
-  </div>
-
-  <div class="setting-row">
-    <div class="setting-head">
-      <span class="setting-label">强调色</span>
-      <span class="accent-preview" id="accentPreview" aria-hidden="true"></span>
-    </div>
-    <div class="accent-sliders">
-      <div class="accent-row">
-        <label for="accentHue">色相</label>
-        <input type="range" id="accentHue" class="setting-slider accent-range accent-hue" min="0" max="360" step="1" value="150">
-        <output class="accent-num" id="accentHueVal" for="accentHue">150°</output>
+  <div class="sheet-scroll">
+    <div class="setting-row">
+      <div class="setting-head">
+        <span class="setting-label" id="themeLabel">主题</span>
       </div>
-      <div class="accent-row">
-        <label for="accentSat">饱和度</label>
-        <input type="range" id="accentSat" class="setting-slider accent-range" min="0" max="100" step="1" value="85">
-        <output class="accent-num" id="accentSatVal" for="accentSat">85%</output>
-      </div>
-      <div class="accent-row">
-        <label for="accentLight">明度</label>
-        <input type="range" id="accentLight" class="setting-slider accent-range" min="6" max="92" step="1" value="29">
-        <output class="accent-num" id="accentLightVal" for="accentLight">29%</output>
+      <div class="segmented" role="radiogroup" aria-labelledby="themeLabel">
+        <button class="seg" type="button" role="radio" aria-checked="false" data-theme-choice="light">浅色</button>
+        <button class="seg" type="button" role="radio" aria-checked="false" data-theme-choice="dark">深色</button>
+        <button class="seg" type="button" role="radio" aria-checked="true" data-theme-choice="auto">自适应</button>
       </div>
     </div>
-    <p class="setting-note">同时影响滑块、播放键、状态灯与背景高光</p>
-  </div>
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="glassBlur">背景模糊</label>
-      <output class="setting-value" id="glassBlurValue" for="glassBlur">100%</output>
-    </div>
-    <input type="range" id="glassBlur" class="setting-slider" min="0" max="200" step="5" value="100"
-           aria-describedby="glassBlurNote">
-    <p class="setting-note" id="glassBlurNote">拖到最左只留半透明，最右加倍磨砂</p>
-  </div>
 
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="bgSpeed">背景流速</label>
-      <output class="setting-value" id="bgSpeedValue" for="bgSpeed">100%</output>
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="outputSelect">输出设备</label>
+      </div>
+      <div class="select-wrap">
+        <select id="outputSelect" class="setting-select" aria-describedby="outputNote"></select>
+      </div>
+      <p class="setting-note" id="outputNote">切换会同时改写系统三种默认角色</p>
     </div>
-    <input type="range" id="bgSpeed" class="setting-slider" min="0" max="200" step="5" value="100"
-           aria-describedby="bgSpeedNote">
-    <p class="setting-note" id="bgSpeedNote">拖到最左即静止背景</p>
-  </div>
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="waterWarpSlider">背景扭曲</label>
-      <output class="setting-value" id="waterWarpValue" for="waterWarpSlider">100%</output>
-    </div>
-    <input type="range" id="waterWarpSlider" class="setting-slider" min="0" max="300" step="5" value="100"
-           aria-describedby="waterWarpNote">
-    <p class="setting-note" id="waterWarpNote">拖到最左背景完全平直，最右强烈扭曲</p>
-  </div>
 
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="waterRippleSlider">背景波纹</label>
-      <output class="setting-value" id="waterRippleValue" for="waterRippleSlider">50%</output>
+    <div class="setting-row">
+      <div class="setting-head">
+        <span class="setting-label">强调色</span>
+        <span class="accent-preview" id="accentPreview" aria-hidden="true"></span>
+      </div>
+      <div class="accent-sliders">
+        <div class="accent-row">
+          <label for="accentHue">色相</label>
+          <input type="range" id="accentHue" class="setting-slider accent-range accent-hue" min="0" max="360" step="1" value="150">
+          <output class="accent-num" id="accentHueVal" for="accentHue">150°</output>
+        </div>
+        <div class="accent-row">
+          <label for="accentSat">饱和度</label>
+          <input type="range" id="accentSat" class="setting-slider accent-range" min="0" max="100" step="1" value="85">
+          <output class="accent-num" id="accentSatVal" for="accentSat">85%</output>
+        </div>
+        <div class="accent-row">
+          <label for="accentLight">明度</label>
+          <input type="range" id="accentLight" class="setting-slider accent-range" min="6" max="92" step="1" value="29">
+          <output class="accent-num" id="accentLightVal" for="accentLight">29%</output>
+        </div>
+      </div>
+      <p class="setting-note">同时影响滑块、播放键、状态灯与背景高光</p>
     </div>
-    <input type="range" id="waterRippleSlider" class="setting-slider" min="0" max="100" step="1" value="50"
-           aria-describedby="waterRippleNote">
-    <p class="setting-note" id="waterRippleNote">左为大块涌动，右为细密涟漪</p>
-  </div>
 
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="waterOctavesSlider">背景细节</label>
-      <output class="setting-value" id="waterOctavesValue" for="waterOctavesSlider">2</output>
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="bgSpeed">背景流速</label>
+        <output class="setting-value" id="bgSpeedValue" for="bgSpeed">100%</output>
+      </div>
+      <input type="range" id="bgSpeed" class="setting-slider" min="0" max="200" step="5" value="100"
+             aria-describedby="bgSpeedNote">
+      <p class="setting-note" id="bgSpeedNote">拖到最左即静止背景</p>
     </div>
-    <input type="range" id="waterOctavesSlider" class="setting-slider" min="1" max="4" step="1" value="2"
-           aria-describedby="waterOctavesNote">
-    <p class="setting-note" id="waterOctavesNote">分形层数，越高越细腻也越吃性能</p>
-  </div>
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="waterWarpSlider">背景扭曲</label>
+        <output class="setting-value" id="waterWarpValue" for="waterWarpSlider">100%</output>
+      </div>
+      <input type="range" id="waterWarpSlider" class="setting-slider" min="0" max="300" step="5" value="100"
+             aria-describedby="waterWarpNote">
+      <p class="setting-note" id="waterWarpNote">拖到最左背景完全平直，最右强烈扭曲</p>
+    </div>
 
-  <div class="setting-row">
-    <div class="setting-head">
-      <label for="waterVignetteSlider">背景暗角</label>
-      <output class="setting-value" id="waterVignetteValue" for="waterVignetteSlider">100%</output>
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="waterRippleSlider">背景波纹</label>
+        <output class="setting-value" id="waterRippleValue" for="waterRippleSlider">50%</output>
+      </div>
+      <input type="range" id="waterRippleSlider" class="setting-slider" min="0" max="100" step="1" value="50"
+             aria-describedby="waterRippleNote">
+      <p class="setting-note" id="waterRippleNote">左为大块涌动，右为细密涟漪</p>
     </div>
-    <input type="range" id="waterVignetteSlider" class="setting-slider" min="0" max="200" step="5" value="100"
-           aria-describedby="waterVignetteNote">
-    <p class="setting-note" id="waterVignetteNote">压暗四边以托住文字，拖到最左则完全去掉</p>
+
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="waterOctavesSlider">背景细节</label>
+        <output class="setting-value" id="waterOctavesValue" for="waterOctavesSlider">2</output>
+      </div>
+      <input type="range" id="waterOctavesSlider" class="setting-slider" min="1" max="4" step="1" value="2"
+             aria-describedby="waterOctavesNote">
+      <p class="setting-note" id="waterOctavesNote">分形层数，越高越细腻也越吃性能</p>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-head">
+        <label for="waterVignetteSlider">背景暗角</label>
+        <output class="setting-value" id="waterVignetteValue" for="waterVignetteSlider">100%</output>
+      </div>
+      <input type="range" id="waterVignetteSlider" class="setting-slider" min="0" max="200" step="5" value="100"
+             aria-describedby="waterVignetteNote">
+      <p class="setting-note" id="waterVignetteNote">压暗四边以托住文字，拖到最左则完全去掉</p>
+    </div>
   </div>
 
   <button class="sheet-done" id="settingsDone" type="button">完成</button>
@@ -2115,9 +2131,11 @@ window.AmuTheme = (function () {
   var sheet = document.getElementById('settingsSheet');
   var backdrop = document.getElementById('sheetBackdrop');
   var doneBtn = document.getElementById('settingsDone');
+  /* The scrolling region lives inside the sheet; reopening must start at the
+     top, otherwise returning from a mid-scroll dismissal is disorienting. */
+  var scrollEl = document.querySelector('.sheet-scroll');
   var slider = document.getElementById('bgSpeed');
-  var blurSlider = document.getElementById('glassBlur');
-  var blurOut = document.getElementById('glassBlurValue');
+
   var readout = document.getElementById('bgSpeedValue');
   var segs = document.querySelectorAll('[data-theme-choice]');
   var Theme = window.AmuTheme;
@@ -2142,47 +2160,6 @@ window.AmuTheme = (function () {
 
   function writeSpeed(n) {
     try { localStorage.setItem(KEY, String(n)); } catch (e) { /* private mode */ }
-  }
-
-  /* ---- glass blur ---------------------------------------------------- */
-  /* Stored as the raw slider percentage (0-200). Only the multiplier is
-     written inline: when nothing is customised the property is removed so the
-     :root default (1) keeps ownership, exactly like the accent colours. */
-  var BLUR_KEY = 'amou.settings.glassBlur';
-
-  function readBlur() {
-    try {
-      var raw = localStorage.getItem(BLUR_KEY);
-      var n = raw === null ? NaN : Number(raw);
-      return isFinite(n) && n >= 0 ? Math.min(n, 200) : 100;
-    } catch (e) { return 100; }
-  }
-
-  function writeBlur(n) {
-    try { localStorage.setItem(BLUR_KEY, String(n)); } catch (e) { /* private mode */ }
-  }
-
-  var blurTimer = null;
-
-  function applyBlur(pct) {
-    if (!blurSlider) return;
-    blurSlider.value = String(pct);
-    if (blurOut) blurOut.textContent = Math.round(pct) + '%';
-    var el = document.documentElement;
-    if (pct === 100) {
-      el.style.removeProperty('--glass-blur');
-    } else {
-      el.style.setProperty('--glass-blur', String(pct / 100));
-    }
-  }
-
-  if (blurSlider) {
-    blurSlider.addEventListener('input', function () {
-      var pct = Number(blurSlider.value);
-      applyBlur(pct);
-      clearTimeout(blurTimer);
-      blurTimer = setTimeout(function () { writeBlur(pct); }, 200);
-    });
   }
 
   /* ---- water parameters ------------------------------------------------
@@ -2464,7 +2441,6 @@ window.AmuTheme = (function () {
     if (slider) slider.value = String(speed * 100);
     if (readout) readout.textContent = Math.round(speed * 100) + '%';
     apply(speed);
-    applyBlur(readBlur());
     restoreWater();
     syncTheme();
   }
@@ -2509,6 +2485,7 @@ window.AmuTheme = (function () {
       sheet.classList.add('show');
       backdrop.classList.add('show');
     }
+    if (scrollEl) scrollEl.scrollTop = 0;
     if (sheet) sheet.focus();
     loadOutputs();
   }
