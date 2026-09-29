@@ -16,6 +16,7 @@ import subprocess
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from device import PLAYBACK_ACTIONS, DeviceError, DeviceWorker
 
@@ -94,7 +95,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routes -----------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802
-        route = self.path.split("?", 1)[0]
+        path, _, query = self.path.partition("?")
+        route = path
         if route == "/":
             try:
                 self._send_bytes(200, INDEX_HTML.read_bytes(), "text/html; charset=utf-8")
@@ -102,6 +104,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._fail(500, "页面文件缺失")
         elif route == "/api/state":
             self._device_call(self.worker.state)
+        elif route == "/api/cover":
+            self._handle_cover(query)
         elif route == "/api/outputs":
             self._device_call(self.worker.outputs)
         elif route in STATIC_FILES:
@@ -132,6 +136,36 @@ class Handler(BaseHTTPRequestHandler):
             self._handle_output(payload)
         else:
             self._fail(404, "接口不存在")
+
+    # -- cover ------------------------------------------------------------
+    def _handle_cover(self, query: str) -> None:
+        """Serve cached album art.
+
+        Artwork is not inlined in /api/state: a full-size cover is ~80KB, and
+        base64 on a 2-second poll would cost ~107KB per request for a picture
+        that changes once per track. The client asks for it by song id instead
+        and keeps it for as long as the track does.
+
+        Long-lived caching is safe precisely because the URL is keyed by song:
+        a different track means a different URL, so a hit is always current.
+        """
+        params = parse_qs(query)
+        raw_id = (params.get("song_id") or [""])[0]
+        if not raw_id.isdigit():
+            self._fail(400, "song_id 必须是正整数")
+            return
+        result = self.worker.cover(int(raw_id))
+        if result is None:
+            self._fail(404, "该曲目没有缓存封面")
+            return
+        body, content_type = result
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     # -- payload validation ----------------------------------------------
     def _handle_output(self, payload: dict) -> None:
@@ -181,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args) -> None:
         # The phone polls /api/state every couple of seconds; logging that
         # would bury the lines that actually matter.
-        if self.path.split("?", 1)[0] == "/api/state":
+        if self.path.split("?", 1)[0] in ("/api/state", "/api/cover"):
             return
         sys.stderr.write("  %s  %s\n" % (self.log_date_time_string(), fmt % args))
 

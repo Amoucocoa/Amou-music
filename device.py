@@ -21,6 +21,8 @@ import threading
 
 import psutil
 
+from metadata import NeteaseSource
+
 # Virtual key codes for the global media keys (WinUser.h). These are handled by
 # the shell, so they reach whichever app owns the current media session and are
 # unaffected by which window has focus.
@@ -88,6 +90,11 @@ class DeviceWorker:
         self._thread.start()
         # Block until COM is live so the first request never races the import.
         self._ready.wait()
+        # Metadata reads touch the player's own sqlite caches and keep a
+        # little state (which lyric belongs to which track, how long we have
+        # been paused). Both are only coherent on one thread, so the source
+        # lives here rather than at module scope.
+        self._metadata = NeteaseSource()
 
     # -- worker thread ----------------------------------------------------
     def _run(self) -> None:
@@ -121,9 +128,37 @@ class DeviceWorker:
         self._queue.put(_STOP)
         self._thread.join(timeout=2)
 
+    def _read_state(self) -> dict:
+        """The full remote state, read on the worker thread.
+
+        Playback detection comes first because the position estimate needs to
+        know whether we are paused. Metadata is advisory: it is read after,
+        and its failure leaves the field null rather than raising, so a player
+        that is closed, upgraded or mid-write can never break volume control.
+        """
+        dev = _require_device()
+        playing = _is_playing()
+        state = {
+            "volume": round(dev.volume_percent / 100.0, 4),
+            "muted": bool(dev.EndpointVolume.GetMute()),
+            "device": dev.FriendlyName or "未知设备",
+            "playing": playing,
+            "device_id": _endpoint_id(dev),
+            "metadata": None,
+        }
+        info = self._metadata.read(playing=playing)
+        if info is not None:
+            payload = info.to_dict()
+            payload["position_ms"] = self._metadata.position_ms()
+            state["metadata"] = payload
+        return state
+
     # -- public API (blocking) -------------------------------------------
     def state(self) -> dict:
-        return self.submit(_read_state)
+        return self.submit(self._read_state)
+
+    def cover(self, song_id: int):
+        return self.submit(self._metadata.cover_bytes, song_id)
 
     def set_volume(self, value: float) -> dict:
         return self.submit(_set_volume, value)
@@ -236,22 +271,6 @@ def _is_playing() -> bool:
     except Exception:
         return False
     return False
-
-
-def _read_state() -> dict:
-    dev = _require_device()
-    return {
-        "volume": round(dev.volume_percent / 100.0, 4),
-        "muted": bool(dev.EndpointVolume.GetMute()),
-        "device": dev.FriendlyName or "未知设备",
-        "playing": _is_playing(),
-        "device_id": _endpoint_id(dev),
-        # Reserved for a future SystemMediaTransportControls integration: the
-        # WinRT projection Python needs for this is not available on this
-        # machine (no .NET SDK, no Windows SDK, no matching PyPI package), so
-        # v1 always reports null and the UI hides the track slot.
-        "metadata": None,
-    }
 
 
 def _endpoint_id(dev) -> str:

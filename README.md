@@ -31,6 +31,9 @@
 | 操作 | 说明 |
 | --- | --- |
 | 播放 / 暂停 | Windows 全局媒体键 `0xB3` |
+| 曲名 / 歌手 / 专辑 | 网易云本地缓存（只读） |
+| 封面 | `GET /api/cover?song_id=`，按曲目缓存 |
+| 歌词 | 网易云本地缓存，随当前行高亮 |
 | 上一首 / 下一首 | 全局媒体键 `0xB1` / `0xB0` |
 | 音量调节 | 直接读写系统默认输出设备的音量，精确到 1% |
 | 静音 | 读取真实静音状态，不是自己记的开关 |
@@ -39,7 +42,23 @@
 
 ## 已知边界
 
-- **不显示歌名。** v1 只做控制。要显示歌名需要读 Windows 的 SMTC（系统媒体传输控制）接口，而这台机器上四条路都试过了：`winrt-Windows.Media.Playback` 只含应用自身的 SMTC、PyPI 没有 `winrt-Windows.Media.SystemMediaTransportControls` 这个包、PowerShell 5.1 和 7 都解析不了 `GlobalSystemMediaTransportControlsSessionManager`、本机也没装 .NET SDK 和 Windows SDK。要支持得先装约 200MB 的 .NET SDK 再加一条 C# 构建链，代价和收益不匹配，所以留到以后。接口里 `metadata` 字段已经预留，前端也留了展示位。
+- **只支持网易云音乐。** 曲名、歌手、专辑、封面和歌词读的是网易云的**本地缓存**
+  （`Library/webdb.dat` / `Statics/index.dat` / `Temp/index.dat`，均以只读方式打开，
+  不复制、不加锁）。这三个都是私有格式，网易云升级后可能失效；失效时 `metadata`
+  退回 `null`，界面显示「全局系统音频会话」，**音量与播放控制不受影响**。
+  接入其他播放器的位置是 `metadata.py` 的 `MetadataSource`，加一个子类即可，
+  `device.py` 不需要改动。
+- **为什么不用 SMTC。** 标准做法是读 Windows 的 SystemMediaTransportControls，
+  但这台机器的 WinRT 运行时组件是残缺的：用 `Windows.Globalization.Calendar.Calendar`、
+  `Windows.Storage.ApplicationData` 这类**必然存在**的类做对照实验，`RoGetActivationFactory`
+  同样全部失败，且 `roapi.dll`、`api-ms-win-core-winrt-l1-1-0.dll` 在系统中并不存在。
+  也就是说这不是「缺依赖库」，装任何包都救不回来。
+- **播放位置是估算的。** 本地没有位置源（`playingCount.playDuration` 是累计播放量，
+  不是游标），位置由播放起始时间推算：暂停时冻结、恢复后续算，**拖动进度条会造成
+  漂移且无法自愈**，直到下次切歌重新对齐。歌词当前行的高亮即基于此值。
+- **没有歌词缓存的歌曲不显示歌词**（不报错），此时歌词卡整块隐藏、不占位。
+- **播放器关闭后卡片会清空。** 判断依据是进程是否存活，而不是「有没有在出声」——
+  暂停时播放器自己的「正在播放」栏仍然显示着封面，遥控器与之保持一致。
 - **没有媒体在播时**，按播放键 Windows 可能会改为启动你设置的默认音乐应用。这是系统行为，不是 bug。
 - **播放状态图标只认白名单里的播放器。** 控制走全局媒体键，任何播放器都按得动；但「图标显示暂停还是播放」读的是音频会话图，而那张图是**全机器**的——语音助手、模拟器、游戏、通知，只要有一个在发声，早期的实现就会把图标永久锁在「暂停」。所以判定只统计白名单进程（网易云、QQ 音乐、酷狗、酷我、腾讯视频、VLC、Spotify、foobar2000、AIMP、MusicBee、Stify、Rhythmbox、Windows Media Player）。**要用别的播放器，往 `device.py` 的 `_MEDIA_PROCESSES` 里加一行进程名即可。** 漏加的后果只是那个播放器对遥控器不可见，不会让按钮显示错。
 - **播放状态有几秒延迟。** 音频会话图不是即时的：实测暂停网易云后，会话对象要约 5 秒才消失（不是变成 Inactive）。前端因此做了双向去抖——连续两次读数一致才跟随，且按下时立即响应，所以不会来回跳。

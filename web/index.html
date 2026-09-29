@@ -425,6 +425,22 @@
       inset 0 0 0 1px var(--hairline);
   }
 
+  /* Real cover art, fetched once per track. It sits above the vinyl and
+     fades in over it, so a track whose artwork has not been cached yet still
+     shows the disc rather than an empty frame. */
+  .art-cover {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    transform: scale(1.02);
+    transition: opacity 0.45s var(--ease), transform 0.6s var(--ease);
+  }
+  .art.has-cover .art-cover { opacity: 1; transform: scale(1); }
+  .art.has-cover .vinyl { opacity: 0; transition: opacity 0.3s var(--ease); }
+
   /* Pure-CSS vinyl: grooves, tinted label, spindle hole, and a raking
      sheen so the disc reads as a physical object rather than a flat circle. */
   .vinyl {
@@ -453,6 +469,41 @@
   }
 
 
+
+  /* --- Lyrics --------------------------------------------------------------
+     A scroll region, not a carousel: the whole lyric is listed and the
+     current line is marked, so the card works on a tall phone and a short
+     landscape window alike. The height ceiling is expressed in the same
+     two-axis terms as the rest of the player so it yields to the viewport
+     rather than pushing the transport off screen. */
+  .lyric-card {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    max-height: clamp(0px, 34dvh, 340px);
+    margin-inline: auto;
+    width: 100%;
+    padding: 4px 2px;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+  }
+  /* No lyrics: the card is removed from flow entirely rather than left as a
+     gap, so a track without cached lyrics looks identical to the old build. */
+  .lyric-card[hidden] { display: none; }
+
+  .lyric-line {
+    font-size: clamp(13px, min(3.9cqi, 2.4dvh), 19px);
+    line-height: 1.75;
+    color: var(--on-2);
+    padding: 3px 0;
+    transition: color 0.3s var(--ease), opacity 0.3s var(--ease);
+  }
+  .lyric-line.is-current {
+    color: var(--on-1);
+    font-weight: 600;
+  }
+  /* Credits (作词/作曲) sit above the first sung line; dimming them keeps the
+     eye on the lyric without hiding information. */
+  .lyric-line.is-credit { opacity: 0.55; font-size: clamp(12px, min(3.4cqi, 2.1dvh), 16px); }
 
   /* --- Track title block --- */
   .track-block {
@@ -1255,11 +1306,14 @@
     </div>
   </header>
 
-  <section class="art" role="img" aria-label="当前播放内容，暂无封面">
+  <section class="art" id="artFrame" role="img" aria-label="当前播放内容，暂无封面">
     <div class="vinyl" aria-hidden="true"></div>
+    <img class="art-cover" id="artCover" alt="" decoding="async">
   </section>
 
   <div class="controls">
+    <div class="lyric-card" id="lyricCard" role="region" aria-label="歌词" hidden></div>
+
     <div class="track-block">
       <div class="track-text">
         <div class="track-title" id="trackTitle">全局系统音频会话</div>
@@ -1586,6 +1640,10 @@
      why trusting "stopped" immediately was wrong. */
   const PLAY_STREAK_TO_TRUST = 2;
 
+  /* Credit lines the player puts above the first sung line. They are kept,
+     just de-emphasised -- they are part of the lyric, not decoration. */
+  const CREDIT_RE = /^(作词|作曲|编曲|混音|录音|监制|出品|制作人|和声|母带|词|曲)\s*[:：]/;
+
   // --- 5. UI View & Controller ---
   class UIController {
     constructor(store, coordinator) {
@@ -1605,6 +1663,13 @@
       this.playing = false;
       this.playRaw = false;
       this.playStreak = PLAY_STREAK_TO_TRUST - 1;
+      /* Track identity as last rendered. Keyed off song id + lyric token so
+         the lyric list is rebuilt only when it really changed -- rebuilding
+         every poll would also throw away the scroll offset. */
+      this.trackKey = null;
+      this.lyricLines = [];
+      this.lyricNodes = [];
+      this.lyricIndex = -1;
       this.debounceTimer = null;
       this.toastTimer = null;
 
@@ -1626,6 +1691,9 @@
         deckNext: document.getElementById('deckNext'),
         trackTitle: document.getElementById('trackTitle'),
         trackArtist: document.getElementById('trackArtist'),
+        artFrame: document.getElementById('artFrame'),
+        artCover: document.getElementById('artCover'),
+        lyricCard: document.getElementById('lyricCard'),
         consoleToast: document.getElementById('consoleToast'),
         toastText: document.getElementById('toastText'),
         toastRetryBtn: document.getElementById('toastRetryBtn')
@@ -1702,6 +1770,103 @@
       } else {
         this.els.trackTitle.textContent = '全局系统音频会话';
         this.els.trackArtist.textContent = state.device ? ('输出设备: ' + state.device) : '网易云 / QQ音乐 / Spotify / 浏览器';
+      }
+      this.renderTrack(state.metadata);
+    }
+
+    /* Cover art and lyrics, both driven by the same metadata payload.
+
+       They are split from the title block above because they behave
+       differently: the title is cheap text, while the cover is a network
+       request and the lyric list is a DOM rebuild. Both are keyed off the
+       track identity so a 2s poll does not repeat that work. */
+    renderTrack(meta) {
+      const track = meta && meta.title ? meta : null;
+      const key = track ? track.song_id + ':' + (track.lyric_token || '') : null;
+
+      if (key !== this.trackKey) {
+        this.trackKey = key;
+        this.lyricLines = track ? (track.lyrics || []) : [];
+        this.lyricNodes = [];
+        this.lyricIndex = -1;
+        this.renderLyrics(this.lyricLines);
+        this.renderCover(track);
+      }
+      if (track) this.highlightLyric(track.position_ms || 0);
+    }
+
+    /* Fetches the cover once per track. A miss leaves the vinyl showing,
+       which is the honest fallback: the player simply has not cached that
+       album's art. */
+    renderCover(track) {
+      const img = this.els.artCover;
+      const frame = this.els.artFrame;
+      if (!track || !track.has_cover) {
+        frame.classList.remove('has-cover');
+        img.removeAttribute('src');
+        return;
+      }
+      const url = '/api/cover?song_id=' + encodeURIComponent(track.song_id);
+      if (img.getAttribute('src') === url) return;
+      img.alt = track.title + (track.artist ? ' - ' + track.artist : '');
+      img.onerror = () => {
+        // 404 / no cached art: fall back to the disc permanently for this track.
+        frame.classList.remove('has-cover');
+        img.removeAttribute('src');
+      };
+      img.src = url;
+      frame.classList.add('has-cover');
+    }
+
+    /* Builds the lyric list. Kept separate from highlighting so a future
+       auto-scroll has a seam: `highlightLyric` marks a line, `scrollToLyric`
+       would bring it into view. */
+    renderLyrics(lines) {
+      const card = this.els.lyricCard;
+      if (!lines || !lines.length) {
+        card.hidden = true;
+        card.textContent = '';
+        this.lyricNodes = [];
+        this.lyricIndex = -1;
+        return;
+      }
+      card.hidden = false;
+      card.textContent = '';
+      const frag = document.createDocumentFragment();
+      this.lyricNodes = lines.map((line, index) => {
+        const el = document.createElement('p');
+        el.className = 'lyric-line' + (CREDIT_RE.test(line[1]) ? ' is-credit' : '');
+        el.textContent = line[1];
+        el.dataset.index = String(index);
+        frag.appendChild(el);
+        return el;
+      });
+      card.appendChild(frag);
+      this.lyricIndex = -1;
+    }
+
+    /* Marks the line the estimated position falls on. Binary search: the
+       timeline is sorted, and a long lyric would otherwise be O(n) on every
+       poll. */
+    highlightLyric(positionMs) {
+      const lines = this.lyricLines;
+      if (!lines.length) return;
+      let lo = 0, hi = lines.length - 1, found = -1;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (lines[mid][0] <= positionMs) { found = mid; lo = mid + 1; } else { hi = mid - 1; }
+      }
+      if (found === this.lyricIndex) return;
+      if (this.lyricIndex >= 0 && this.lyricNodes[this.lyricIndex]) {
+        const prev = this.lyricNodes[this.lyricIndex];
+        prev.classList.remove('is-current');
+        prev.removeAttribute('aria-current');
+      }
+      this.lyricIndex = found;
+      if (found >= 0 && this.lyricNodes[found]) {
+        const next = this.lyricNodes[found];
+        next.classList.add('is-current');
+        next.setAttribute('aria-current', 'true');
       }
     }
 
