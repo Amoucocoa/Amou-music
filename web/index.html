@@ -574,7 +574,12 @@
      A line may occupy both rows when it is long (English lyrics here run to
      55 characters, which wraps to three rows on a phone); the current line
      takes priority and simply pushes the following line out of view for the
-     duration. Nothing is ever truncated mid-word. */
+     duration. Nothing is ever truncated mid-word.
+
+     Press and hold (or Enter/Space when focused) to open the same card as a
+     tall scrollable sheet holding the whole song, with the current line kept
+     in view. That is the escape hatch for the one thing the strip cannot do,
+     and it is opt-in so the resting layout stays exactly two rows. */
   .lyric-card {
     /* One source of truth for the row metric: the font scales on the same
        two-axis terms as the rest of the player, and the window is two of
@@ -586,6 +591,46 @@
     margin-inline: auto;
     height: calc(var(--lyric-row) * 2);
     overflow: hidden;
+    /* Press-and-hold is the only way in, so the surface has to read as
+       pressable. The plate follows the app's press-only language: it appears
+       under the finger and is gone on release. */
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  /* Expanded. The strip's transform is reset to 0 by the script and the card
+     itself becomes the scroller, so the current line is kept in view with
+     scrollTop instead of a translate. */
+  .lyric-card.is-expanded {
+    height: min(56dvh, calc(100dvh - 220px));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    cursor: zoom-out;
+    border-radius: 14px;
+    background: var(--lyric-sheet, rgba(255, 255, 255, 0.34));
+    -webkit-backdrop-filter: saturate(180%) blur(18px);
+    backdrop-filter: saturate(180%) blur(18px);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
+    /* Near the end of a song the scroller is already at max scrollTop, so the
+       current line cannot be brought to the top and ends up half-cut at the
+       bottom. Fading both edges makes a cut line read as "more below" rather
+       than as a rendering fault. */
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+    mask-image: linear-gradient(to bottom, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+    transition: height 0.34s var(--ease), border-radius 0.34s var(--ease),
+                box-shadow 0.34s var(--ease), background-color 0.34s var(--ease);
+  }
+  /* A one-shot flash on open, so the gesture has a visible reward even
+     though the surface itself stays put. */
+  @keyframes lyric-open {
+    from { opacity: 0.35; }
+    to   { opacity: 1; }
+  }
+  .lyric-card.is-expanding { animation: lyric-open 0.28s var(--ease); }
+  .lyric-card:focus-visible {
+    outline: 2px solid var(--accent, currentColor);
+    outline-offset: 3px;
+    border-radius: 14px;
   }
   /* No lyrics: the card is removed from flow entirely rather than left as a
      gap, so a track without cached lyrics looks identical to the old build. */
@@ -1436,7 +1481,8 @@
   </section>
 
   <div class="controls">
-    <div class="lyric-card" id="lyricCard" role="region" aria-label="歌词" hidden>
+    <div class="lyric-card" id="lyricCard" role="button" tabindex="0"
+         aria-label="歌词，长按展开" aria-expanded="false" hidden>
       <div class="lyric-track" id="lyricTrack"></div>
     </div>
 
@@ -1981,12 +2027,47 @@
        constant and index * rowHeight would drift. offsetTop is relative to
        the track, which is the positioned ancestor of every line. */
     seekToLine(index) {
+      const card = this.els.lyricCard;
       const track = this.els.lyricTrack;
       const node = this.lyricNodes[index];
       /* Before the first timestamp there is no current line; hold the top of
          the song rather than jumping somewhere arbitrary. */
       const top = node ? node.offsetTop : 0;
-      track.style.transform = 'translateY(' + (-top) + 'px)';
+      if (card.classList.contains('is-expanded')) {
+        /* Expanded, the CARD scrolls. The track must be at its origin first or
+           scrollTop would be measured against an already-shifted content. */
+        track.style.transform = 'translateY(0)';
+        card.scrollTop = top;
+      } else {
+        track.style.transform = 'translateY(' + (-top) + 'px)';
+      }
+    }
+
+    /* Opens the card as a scrollable sheet over the whole lyric, or closes it.
+
+       Collapsing restores the strip's translate from the CURRENT line rather
+       than from wherever the user happened to have scrolled to, so the strip
+       never comes back pointing at the wrong line. */
+    setLyricExpanded(open) {
+      const card = this.els.lyricCard;
+      if (!card || card.hidden) return;
+      if (card.classList.contains('is-expanded') === open) return;
+      card.classList.toggle('is-expanded', open);
+      card.setAttribute('aria-expanded', open ? 'true' : 'false');
+      card.setAttribute('aria-label', open ? '歌词，再次长按收起' : '歌词，长按展开');
+      if (open) {
+        card.scrollTop = 0;
+        card.classList.add('is-expanding');
+        /* The keyframe is one-shot; leaving the class on would re-flash the
+           card on every re-render, and nothing else keys off it. */
+        var self = this;
+        setTimeout(function () { card.classList.remove('is-expanding'); }, 320);
+        this.seekToLine(Math.max(this.lyricIndex, 0));
+      } else {
+        this.els.lyricTrack.style.transform = 'translateY(0)';
+        card.scrollTop = 0;
+        this.seekToLine(Math.max(this.lyricIndex, 0));
+      }
     }
 
     /* Marks the line the estimated position falls on. Binary search: the
@@ -2180,6 +2261,91 @@
       bindDeckKey(this.els.deckPrev, 'prev');
       bindDeckKey(this.els.deckPlay, 'play_pause');
       bindDeckKey(this.els.deckNext, 'next');
+      this.bindLyricGesture();
+    }
+
+    /* Press-and-hold to open the full lyric; tap anywhere else, press Escape,
+       or press again to close it.
+
+       Long press rather than a plain click, because a click on this surface
+       has no other meaning and a mis-tap should not throw the layout open. The
+       420ms threshold is below the ~500ms at which a press-and-hold starts
+       feeling like a platform context menu on touch.
+
+       Movement cancels the gesture: a press that turns into a scroll is a
+       scroll, and on a mouse that is by far the most common way people try to
+       read a long lyric. */
+    bindLyricGesture() {
+      const card = this.els.lyricCard;
+      if (!card) return;
+      const self = this;
+      const HOLD_MS = 420;
+      const MOVE_TOLERANCE = 10;
+      let timer = 0;
+      let startX = 0;
+      let startY = 0;
+      let fired = false;
+
+      const cancel = () => {
+        if (timer) { clearTimeout(timer); timer = 0; }
+      };
+
+      card.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        fired = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        cancel();
+        timer = setTimeout(() => {
+          timer = 0;
+          fired = true;
+          Haptics.action();
+          self.setLyricExpanded(!card.classList.contains('is-expanded'));
+        }, HOLD_MS);
+      });
+
+      card.addEventListener('pointermove', (e) => {
+        if (!timer) return;
+        if (Math.abs(e.clientX - startX) > MOVE_TOLERANCE ||
+            Math.abs(e.clientY - startY) > MOVE_TOLERANCE) cancel();
+      });
+
+      /* pointerup, pointercancel and pointerleave all end the press. Leaving the
+         element mid-hold must cancel, or the card opens after the finger has
+         already travelled somewhere else. */
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach((type) => {
+        card.addEventListener(type, cancel);
+      });
+
+      /* A long press that ends over the card still fires a click on most
+         engines, which would immediately close what we just opened. Swallow
+         exactly that one. */
+      card.addEventListener('click', (e) => {
+        if (fired) { e.preventDefault(); e.stopPropagation(); fired = false; }
+      });
+
+      /* Keyboard equivalent. A card reachable only by holding a finger is not
+         reachable at all by keyboard, and this is a reading affordance. */
+      card.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+        e.preventDefault();
+        Haptics.action();
+        self.setLyricExpanded(!card.classList.contains('is-expanded'));
+      });
+
+      /* Escape closes, matching the settings sheet. */
+      document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        if (card.classList.contains('is-expanded')) self.setLyricExpanded(false);
+      });
+
+      /* Tap away closes. Bound on pointerdown, not click, so a press that
+         starts on the card and ends elsewhere still closes it. */
+      document.addEventListener('pointerdown', (e) => {
+        if (!card.classList.contains('is-expanded')) return;
+        if (card.contains(e.target)) return;
+        self.setLyricExpanded(false);
+      });
     }
   }
 
