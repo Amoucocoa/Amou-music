@@ -478,10 +478,19 @@
     aspect-ratio: 1;
     border-radius: 50%;
     background:
+      /* The sheen is TWO identical arcs 180deg apart, not one. A single arc
+         leaves 272deg of the disc unlit, so the bright mass always sits off to
+         one side and the record reads as lopsided no matter where it has
+         turned to. Two arcs make the pattern 180deg-periodic: the luminance
+         balance about the centre is identical at every instant of the
+         rotation, while the arcs themselves still make the turn legible. */
       conic-gradient(from 205deg,
         rgba(255, 255, 255, 0) 0deg,
         rgba(255, 255, 255, 0.11) 38deg,
         rgba(255, 255, 255, 0) 88deg,
+        rgba(255, 255, 255, 0) 180deg,
+        rgba(255, 255, 255, 0.11) 218deg,
+        rgba(255, 255, 255, 0) 268deg,
         rgba(255, 255, 255, 0) 360deg),
       radial-gradient(circle, var(--tint) 0 18%, transparent 18.5%),
       radial-gradient(circle, #06120D 0 2.5%, transparent 3%),

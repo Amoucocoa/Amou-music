@@ -38,7 +38,12 @@ param(
   [int]$Frames = 4,
   [int]$IntervalMs = 1000,
   [double]$MaxDiscOffsetPx = 1.0,
-  [double]$MaxShadowWanderPx = 6.0
+  [double]$MaxShadowWanderPx = 6.0,
+  # Max luminance gap between opposite points of the groove ring, 0-255.
+  # A single-arc sheen measures ~28; a 180deg-periodic one measures < 3.
+  [double]$MaxSheenAsymmetry = 6.0,
+  # Angular resolution of the ring sampling.
+  [int]$SheenBins = 72
 )
 
 $ErrorActionPreference = 'Stop'
@@ -152,9 +157,16 @@ try {
   $cy = $base.Height / 2.0
   Write-Host ("  sleeve {0}x{1}px, centre ({2:N1},{3:N1})" -f $base.Width, $base.Height, $cx, $cy) -ForegroundColor DarkGray
   $offsets = @(); $widths = @(); $heights = @(); $shadowX = @(); $shadowY = @()
+  # Luminance sampled around a circle inside the exposed groove ring, so the
+  # conic sheen can be tested for 180deg periodicity. Averaged over three radii
+  # to suppress antialiasing noise; the ring sits between the artwork edge and
+  # the record edge, which is opaque, so the page backdrop cannot contaminate it.
+  $ringX = @(); $ringY = @()
 
   foreach ($p in $framePaths) {
     $bmp = [System.Drawing.Bitmap]::FromFile($p)
+    $ringL = New-Object 'double[]' $SheenBins
+    $ringN = New-Object 'int[]' $SheenBins
     $dxS = 0.0; $dyS = 0.0; $dxN = 0
     $shX = 0.0; $shY = 0.0; $shN = 0
     $minX = 99999; $maxX = -1; $minY = 99999; $maxY = -1
@@ -168,12 +180,19 @@ try {
           $dxS += $ox; $dyS += $oy; $dxN++
           if ($x -lt $minX) { $minX = $x }; if ($x -gt $maxX) { $maxX = $x }
           if ($y -lt $minY) { $minY = $y }; if ($y -gt $maxY) { $maxY = $y }
+          if ($r -ge 100 -and $r -le 118) {
+            # atan2 spans -PI..PI; shift to 0..2PI so the whole circle is binned.
+            $bin = [int][Math]::Floor(([Math]::Atan2($oy, $ox) + [Math]::PI) / (2 * [Math]::PI) * $SheenBins) % $SheenBins
+            $ringL[$bin] += (0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B)
+            $ringN[$bin]++
+          }
         } elseif ($r -ge 126 -and $r -le 172) {
           $shX += $ox; $shY += $oy; $shN++
         }
       }
     }
     $bmp.Dispose()
+    if ($ringL[0] -or $ringL[1]) { $ringX += , @($ringL); $ringY += , @($ringN) }
     if ($dxN -gt 0) {
       $offsets += [pscustomobject]@{ x = $dxS / $dxN; y = $dyS / $dxN }
       $widths += ($maxX - $minX + 1); $heights += ($maxY - $minY + 1)
@@ -206,6 +225,29 @@ try {
     Assert-That ($wander -lt $MaxShadowWanderPx) 'shadow does not orbit with the rotation' "wander $([Math]::Round($wander, 2))px (limit $MaxShadowWanderPx)"
   } else {
     Assert-That $false 'shadow ring was measurable' 'too few shadow pixels to judge the halo'
+  }
+
+  # The sheen must be 180deg-periodic: opposite points of the ring carry the
+  # same luminance. A single-arc conic gradient leaves 272deg unlit, so the
+  # bright mass sits off-centre at every angle - the same failure mode as the
+  # orbiting shadow, one layer up.
+  if ($ringX.Count -ge 1) {
+    $worstSheen = 0.0
+    $half = [int]($SheenBins / 2)
+    for ($f = 0; $f -lt $ringX.Count; $f++) {
+      $L = $ringX[$f]; $N = $ringY[$f]
+      for ($i = 0; $i -lt $half; $i++) {
+        $j = $i + $half
+        if ($N[$i] -le 0 -or $N[$j] -le 0) { continue }
+        $a = $L[$i] / $N[$i]; $b = $L[$j] / $N[$j]
+        $d = [Math]::Abs($a - $b)
+        if ($d -gt $worstSheen) { $worstSheen = $d }
+      }
+    }
+    Assert-That ($worstSheen -lt $MaxSheenAsymmetry) `
+      'sheen is 180deg symmetric about the disc' "worst opposite-pair delta $([Math]::Round($worstSheen, 1))/255"
+  } else {
+    Assert-That $false 'groove ring was measurable' 'no pixels sampled in the ring'
   }
 
   Write-Host "`n3. Console" -ForegroundColor Cyan
