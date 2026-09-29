@@ -71,7 +71,7 @@ function Invoke-Eval {
   return (($line.Trim() | ConvertFrom-Json) | ConvertFrom-Json)
 }
 
-$JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)return null;var c=getComputedStyle(e);var m=new DOMMatrix(c.transform);return{tx:m.e,ty:m.f,ang:Math.atan2(m.b,m.a)*180/Math.PI,org:c.transformOrigin,side:e.offsetWidth,sh:c.boxShadow};}return JSON.stringify({cover:r('.art-cover'),vinyl:r('.vinyl'),rm:matchMedia('(prefers-reduced-motion: reduce)').matches});}"
+$JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)return null;var c=getComputedStyle(e);var m=new DOMMatrix(c.transform);var b=e.getBoundingClientRect();return{tx:m.e,ty:m.f,ang:Math.atan2(m.b,m.a)*180/Math.PI,org:c.transformOrigin,side:e.offsetWidth,sh:c.boxShadow,op:c.opacity,cx:b.left+b.width/2,cy:b.top+b.height/2};}return JSON.stringify({cover:r('.art-cover'),vinyl:r('.vinyl'),rm:matchMedia('(prefers-reduced-motion: reduce)').matches});}"
 $JS_FLAT = "function(){var s=document.createElement('style');s.id='qa-flat';s.textContent='html,body{background:#e9ecef !important;}.backdrop,svg,#water,.water{display:none !important;}';document.head.appendChild(s);return JSON.stringify({r:'flat'});}"
 $JS_HIDE = "function(){document.querySelector('.art-cover').style.visibility='hidden';document.querySelector('.vinyl').style.visibility='hidden';return JSON.stringify({r:'hidden'});}"
 $JS_SHOW = "function(){document.querySelector('.art-cover').style.visibility='';document.querySelector('.vinyl').style.visibility='';return JSON.stringify({r:'shown'});}"
@@ -113,6 +113,17 @@ try {
     $parity = [Math]::Min($parity, 360 - $parity)
     Assert-That ($parity -lt 0.5) 'cover and vinyl turn in phase' "delta $([Math]::Round($parity, 2)) deg"
   }
+
+  # Picture-disc geometry: the artwork is a label printed ON the record, so it
+  # must be concentric with the vinyl AND strictly smaller than it - otherwise
+  # the black grooves are hidden again and the disc reads as a bare photo.
+  $ecc = [Math]::Max([Math]::Abs($probe.cover.cx - $probe.vinyl.cx), [Math]::Abs($probe.cover.cy - $probe.vinyl.cy))
+  Assert-That ($ecc -lt 0.5) 'artwork is concentric with the record' "centre offset $([Math]::Round($ecc, 2))px"
+  $ratio = $probe.cover.side / $probe.vinyl.side
+  Assert-That (($ratio -gt 0.3) -and ($ratio -lt 0.85)) `
+    'artwork leaves the vinyl ring visible' "art/vinyl diameter ratio $([Math]::Round($ratio, 3))"
+  Assert-That ([double]$probe.vinyl.op -gt 0.99) `
+    'the record stays visible under the artwork' "vinyl opacity $($probe.vinyl.op)"
 
   Write-Host "`n2. Pixel measurement" -ForegroundColor Cyan
   if ($probe.rm) {

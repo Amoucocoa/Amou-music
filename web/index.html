@@ -425,20 +425,23 @@
       inset 0 0 0 1px var(--hairline);
   }
 
-  /* Real cover art, fetched once per track. It sits above the vinyl and
-     fades in over it, so a track whose artwork has not been cached yet still
-     shows the disc rather than an empty frame. */
+  /* Real cover art, fetched once per track. A picture disc: the artwork is
+     printed on a SMALL label at the middle of the record, so the black vinyl
+     and its grooves stay visible as a ring around it. Fades in over the disc,
+     so a track whose artwork has not been cached yet still shows the record
+     rather than an empty frame. */
   .art-cover {
-    /* Deliberately the SAME geometry as .vinyl below: 66% of the sleeve,
-       centred, circular. The artwork is a picture disc -- it lives inside the
-       record, it does not replace the whole sleeve. */
+    /* 38% of the sleeve against the vinyl's 66% - i.e. the artwork is ~58% of
+       the record's diameter, which is what a real picture disc looks like.
+       Same centring contract as .vinyl below, so the two stay concentric and
+       the shared rotation tween keeps them locked. */
     position: absolute;
     /* Centred WITHOUT transform: `inset:0` + `margin:auto` puts the box dead
        centre in both axes, so the stylesheet contributes nothing to
        `transform` and the rotation tween owns that property outright. */
     inset: 0;
     margin: auto;
-    width: 66%;
+    width: 38%;
     aspect-ratio: 1;
     border-radius: 50%;
     object-fit: cover;
@@ -447,17 +450,19 @@
        directional offset (the old `0 16px 36px`) swings once around per turn
        and the disc reads as sliding off-centre even though its geometry never
        moves. Measured: dark mass orbited ~15px while the disc held centre to
-       0.00px. Ambient + contact, both centred on the disc. */
+       0.00px. Sized for a small label sitting ON the record rather than
+       replacing it: a tight symmetric contact darkening, no wide halo. */
     box-shadow:
-      0 0 30px rgba(0, 0, 0, 0.38),
-      0 0 6px rgba(0, 0, 0, 0.20),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+      0 0 7px rgba(0, 0, 0, 0.34),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
     /* Only opacity transitions. The rotation tween owns `transform`
        outright; a transform transition here would fight it every frame. */
     transition: opacity 0.45s var(--ease);
   }
   .art.has-cover .art-cover { opacity: 1; }
-  .art.has-cover .vinyl { opacity: 0; transition: opacity 0.3s var(--ease); }
+  /* The vinyl deliberately stays visible. It is no longer a placeholder that
+     gets swapped out - it is the record the artwork is printed on, and hiding
+     it is what used to leave the frame showing nothing but a floating photo. */
 
   /* Pure-CSS vinyl: grooves, tinted label, spindle hole, and a raking
      sheen so the disc reads as a physical object rather than a flat circle. */
