@@ -41,6 +41,8 @@
 
 - **不显示歌名。** v1 只做控制。要显示歌名需要读 Windows 的 SMTC（系统媒体传输控制）接口，而这台机器上四条路都试过了：`winrt-Windows.Media.Playback` 只含应用自身的 SMTC、PyPI 没有 `winrt-Windows.Media.SystemMediaTransportControls` 这个包、PowerShell 5.1 和 7 都解析不了 `GlobalSystemMediaTransportControlsSessionManager`、本机也没装 .NET SDK 和 Windows SDK。要支持得先装约 200MB 的 .NET SDK 再加一条 C# 构建链，代价和收益不匹配，所以留到以后。接口里 `metadata` 字段已经预留，前端也留了展示位。
 - **没有媒体在播时**，按播放键 Windows 可能会改为启动你设置的默认音乐应用。这是系统行为，不是 bug。
+- **播放状态图标只认白名单里的播放器。** 控制走全局媒体键，任何播放器都按得动；但「图标显示暂停还是播放」读的是音频会话图，而那张图是**全机器**的——语音助手、模拟器、游戏、通知，只要有一个在发声，早期的实现就会把图标永久锁在「暂停」。所以判定只统计白名单进程（网易云、QQ 音乐、酷狗、酷我、腾讯视频、VLC、Spotify、foobar2000、AIMP、MusicBee、Stify、Rhythmbox、Windows Media Player）。**要用别的播放器，往 `device.py` 的 `_MEDIA_PROCESSES` 里加一行进程名即可。** 漏加的后果只是那个播放器对遥控器不可见，不会让按钮显示错。
+- **播放状态有几秒延迟。** 音频会话图不是即时的：实测暂停网易云后，会话对象要约 5 秒才消失（不是变成 Inactive）。前端因此做了双向去抖——连续两次读数一致才跟随，且按下时立即响应，所以不会来回跳。
 - **音量只作用于系统默认输出设备**，不支持在多台设备间切换。
 - **没有访问密码。** 这是刻意的选择：同一 WiFi 下的任何设备都能控制这台电脑。在咖啡厅或办公室这类公共网络下别开着。
 
@@ -67,5 +69,5 @@
 
 ## 环境
 
-Windows 11 · Python 3.14 · 依赖只有 `pycaw` 和 `comtypes`，无 Web 框架。
+Windows 11 · Python 3.14 · 依赖只有 `pycaw`、`comtypes`、`psutil`，无 Web 框架。
 `192.168.1.3` 是真实网卡地址，VMware 和 Meta 的虚拟网卡会被自动跳过。

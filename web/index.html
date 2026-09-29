@@ -1581,8 +1581,9 @@
     }
   }
 
-  /* Consecutive "a session is Active" readings required before the play button
-     believes playback started. See updatePlayIcon. */
+  /* Consecutive identical readings required before the play/pause glyph
+     follows the server. Applies in BOTH directions -- see updatePlayIcon for
+     why trusting "stopped" immediately was wrong. */
   const PLAY_STREAK_TO_TRUST = 2;
 
   // --- 5. UI View & Controller ---
@@ -1591,15 +1592,19 @@
       this.store = store;
       this.coordinator = coordinator;
       this.suppressFaderUntil = 0;
-      /* Play/pause is the one control whose truth arrives late: the session
-         graph only flips once the app actually starts making sound, which is
-         after the command returns. So a press flips the icon immediately and
-         suppresses reconciliation briefly, otherwise the next poll would
-         contradict it and the icon would visibly bounce. Same pattern as
-         suppressFaderUntil above. */
+      /* Play/pause truth arrives seconds late: the media session graph only
+         reflects a real toggle about 5s after the key press, so a naive
+         reconcile makes the glyph bounce. Instead of a time-based mute window
+         (the previous approach, which suppressed 2.5s and then snapped back
+         anyway), the glyph follows the server only after two identical
+         readings. See updatePlayIcon.
+
+         playStreak starts one short of the threshold so the very first poll
+         after page load can confirm immediately -- there is nothing to
+         protect against yet. */
       this.playing = false;
-      this.playStreak = 0;
-      this.suppressPlayUntil = 0;
+      this.playRaw = false;
+      this.playStreak = PLAY_STREAK_TO_TRUST - 1;
       this.debounceTimer = null;
       this.toastTimer = null;
 
@@ -1680,11 +1685,9 @@
       this.els.cutText.textContent = state.muted ? '已静音' : '静音';
       this.updateCutIcon(state.muted, pct);
 
-      // Play/pause glyph. Skipped while a press is still settling — see
-      // suppressPlayUntil in the constructor.
-      if (Date.now() > this.suppressPlayUntil) {
-        this.updatePlayIcon(!!state.playing);
-      }
+      // Play/pause glyph. Debounced inside updatePlayIcon, so the raw reading
+      // is handed over unconditionally.
+      this.updatePlayIcon(!!state.playing);
 
       // Preset buttons state
       this.els.presets.forEach(btn => {
@@ -1705,20 +1708,34 @@
     /* Play is a rounded triangle, pause two rounded bars. Both are drawn into
        the same 7..20 x 4..20 box so swapping them does not change the
        button's visual weight — same trick the skip glyphs use. */
-    /* `raw` is what the server reports, which is "is any session Active" — a
-       notification "ding" lights one up for about a second. So require two
-       consecutive Active readings before BELIEVING playback; otherwise a chime
-       would flip the icon to pause and back for no reason.
+    /* `raw` is the server's "a known media player is producing sound".
 
-       Going quiet is trusted immediately — pausing must feel instant, and a
-       false "paused" during a fade-out is harmless. Only the "playing" claim
-       is worth confirming, because that is the one a stray sound corrupts.
+       Measured on NetEase Cloud Music, a real play/pause toggle takes roughly
+       5 seconds to show up in the session graph — pausing does not flip the
+       session to Inactive, the session objects simply disappear a few seconds
+       later. So the reading genuinely disagrees with reality for several
+       seconds after every press, in BOTH directions.
 
-       The optimistic flip on press primes the streak, so the user's own action
-       still confirms on the very next poll instead of waiting a second round. */
+       The earlier logic debounced only the "playing" claim and trusted
+       "stopped" immediately. That was asymmetric for no reason and produced a
+       visible snap-back: pause the music, the icon flips to "play" instantly,
+       then the 2.5s mute window expires while the graph still says Active and
+       the icon jumps back to "pause" for a few seconds before finally settling.
+
+       Requiring two identical readings either way removes the bounce without a
+       time window: the optimistic flip on press sets playRaw to the expected
+       value, so the lagging poll disagrees once (streak resets, nothing moves)
+       and the second agreeing poll confirms it. */
     updatePlayIcon(raw) {
-      if (raw) this.playStreak += 1; else this.playStreak = 0;
-      this.setPlayIcon(this.playStreak >= PLAY_STREAK_TO_TRUST);
+      if (raw === this.playRaw) {
+        this.playStreak += 1;
+      } else {
+        this.playRaw = raw;
+        this.playStreak = 1;
+      }
+      if (this.playStreak >= PLAY_STREAK_TO_TRUST) {
+        this.setPlayIcon(this.playRaw);
+      }
     }
 
     /* The actual glyph swap, deliberately ungated: the optimistic flip on press
@@ -1832,15 +1849,15 @@
         btnEl.addEventListener('click', async () => {
           Haptics.action();
           if (action === 'play_pause') {
-            // Flip now rather than after the next poll: the session graph
-            // only reports Active once the app is actually making sound,
-            // which lands well after this handler returns. The suppression
-            // window stops the following poll from contradicting the guess.
-            this.setPlayIcon(!this.playing);
-            // Prime the streak so the first real poll after the press counts as
-            // the confirming reading, rather than stalling for a second round.
-            this.playStreak = this.playing ? 1 : 0;
-            this.suppressPlayUntil = Date.now() + 2500;
+            // Flip now rather than after the next poll: the session graph lags
+            // a real toggle by seconds, so waiting would feel unresponsive.
+            // playRaw is seeded with the expected value and the streak with 1,
+            // so the first genuinely agreeing poll confirms the guess and a
+            // disagreeing one merely resets — no snap-back either way.
+            const expected = !this.playing;
+            this.setPlayIcon(expected);
+            this.playRaw = expected;
+            this.playStreak = 1;
           }
           try {
             await AudioRemoteAPI.playback(action);

@@ -19,6 +19,8 @@ import ctypes
 import queue
 import threading
 
+import psutil
+
 # Virtual key codes for the global media keys (WinUser.h). These are handled by
 # the shell, so they reach whichever app owns the current media session and are
 # unaffected by which window has focus.
@@ -37,6 +39,35 @@ PLAYBACK_ACTIONS = {
 # the values are fixed by the OS ABI.
 _AUDIO_SESSION_INACTIVE = 0
 _AUDIO_SESSION_ACTIVE = 1
+
+# Process names counted as "a media player is producing sound". The session
+# graph is machine-wide, so without this filter any resident program that
+# makes noise -- a voice assistant, an emulator, a game, a notification --
+# pins `playing` to true and the play/pause glyph is stuck on "pause".
+#
+# Matched case-insensitively on the executable name. Extend by appending; a
+# missing entry only means that player is invisible to the remote, which is
+# a far better failure than a permanently wrong button.
+_MEDIA_PROCESSES = frozenset(
+    name.lower()
+    for name in (
+        # Domestic clients
+        "cloudmusic.exe",    # NetEase Cloud Music
+        "qqmusic.exe",       # QQ Music
+        "kugou.exe",         # Kugou
+        "kuwo.exe",          # Kuwo
+        "qqlive.exe",        # Tencent Video
+        "vlc.exe",
+        # International clients
+        "spotify.exe",
+        "foobar2000.exe",
+        "aimp.exe",
+        "musicbee.exe",
+        "stify.exe",
+        "rhythmbox.exe",
+        "music.exe",         # Windows Media Player / Groove
+    )
+)
 
 _STOP = object()
 
@@ -131,24 +162,58 @@ def _require_device():
     return dev
 
 
+def _session_process_name(session) -> str | None:
+    """Executable name behind an audio session, or None if it cannot be read.
+
+    ``GetProcessId`` lives on IAudioSessionControl2, not on the base
+    IAudioSessionControl the enumerator hands back, so the interface has to be
+    queried for.
+
+    The cast is deliberately comtypes' ``QueryInterface`` and NOT
+    ``ctypes.cast``: the latter builds a ctypes wrapper whose release runs
+    against a vtable the enumerator has already torn down, which raises
+    "COM method call without VTable" from a destructor and takes the whole
+    server process down with it. QueryInterface keeps refcounting under
+    comtypes' control, which is the same apartment the session came from.
+
+    Every failure path is swallowed: a session we cannot attribute is simply
+    not counted, which is the conservative direction for a boolean that drives
+    a play/pause button.
+    """
+    from pycaw.pycaw import IAudioSessionControl2
+
+    try:
+        control = session.QueryInterface(IAudioSessionControl2)
+        try:
+            return psutil.Process(control.GetProcessId()).name()
+        finally:
+            del control
+    except Exception:
+        return None
+
+
 def _is_playing() -> bool:
-    """Approximate playback state, read from the Windows audio session graph.
+    """Whether a known media player is currently producing sound.
 
-    There is no supported way for a desktop process to read the real media
-    playback state. SMTC (SystemMediaTransportControls) would give it, but
-    needs a WinRT projection this machine does not have — the same gap that
-    keeps `metadata` null.
+    Still a proxy, not SMTC -- but a proxy that is only wrong in the
+    harmless direction.
 
-    The session graph, however, IS reachable through pycaw, and a session sits
-    in Active state exactly while its application is producing sound. So
-    "is anything playing right now" is answerable, which is all a play/pause
-    toggle actually needs.
+    The session graph is machine-wide, so the first cut of this function
+    asked "is ANY session Active". On the dev machine that returned true
+    permanently: a resident assistant, an emulator and NetEase Cloud Music
+    all sat Active at once, so pausing the music changed nothing and the
+    play/pause glyph was pinned to "pause" forever. Counting only sessions
+    owned by ``_MEDIA_PROCESSES`` is what makes the field mean anything.
 
-    Worth being explicit that this is a proxy, not SMTC: a game or a video
-    call making noise also reads as playing, and a paused player reads as
-    not playing. It is right for the common case (music from any app, which
-    is the whole point of this remote) and wrong only while non-media audio
-    is active. Costs about 33ms, against a 2s poll interval.
+    One timing fact shapes the UI side, measured on NetEase Cloud Music: the
+    session graph does not flip the instant the key press lands. Pausing does
+    not move the session to Inactive at all -- the session objects disappear,
+    which took ~5s from a cold start. Once a session exists the round trip is
+    fast (measured 740ms to confirm a pause, 356ms to confirm a resume).
+
+    So the raw value can lag a toggle by seconds, in either direction. The
+    frontend debounces symmetrically rather than on a timer; see
+    updatePlayIcon in web/index.html.
 
     Never raises: the play button is decoration, and a failure to read it
     must not take the volume slider or the device list down with it.
@@ -159,7 +224,11 @@ def _is_playing() -> bool:
         sessions = AudioUtilities.GetAudioSessionManager().GetSessionEnumerator()
         for index in range(sessions.GetCount()):
             try:
-                if sessions.GetSession(index).GetState() == _AUDIO_SESSION_ACTIVE:
+                session = sessions.GetSession(index)
+                if session.GetState() != _AUDIO_SESSION_ACTIVE:
+                    continue
+                name = _session_process_name(session)
+                if name and name.lower() in _MEDIA_PROCESSES:
                     return True
             except Exception:
                 # One uncooperative session must not hide the others.

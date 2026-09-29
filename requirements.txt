@@ -4,3 +4,6 @@
 # so staying at or above these avoids silently landing on an old shape.
 pycaw>=20260921
 comtypes>=1.4.17
+# Maps an audio session's process id to an executable name, so `playing` can
+# be attributed to a media player instead of "something on the PC made noise".
+psutil>=5.9.0
