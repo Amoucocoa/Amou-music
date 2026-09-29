@@ -529,39 +529,65 @@
 
 
   /* --- Lyrics --------------------------------------------------------------
-     A scroll region, not a carousel: the whole lyric is listed and the
-     current line is marked, so the card works on a tall phone and a short
-     landscape window alike. The height ceiling is expressed in the same
-     two-axis terms as the rest of the player so it yields to the viewport
-     rather than pushing the transport off screen. */
+     A two-line window: the line being sung, and the one after it. The whole
+     lyric stays in the DOM - the card is a viewport onto it, not a filter -
+     so a screen reader still walks the song top to bottom in order and the
+     visual strip can never desynchronise from what is announced.
+
+     The card is EXACTLY two rows tall and never scrolls, because a lyric
+     surface that reflows while music plays is worse than one that shows less.
+     A line may occupy both rows when it is long (English lyrics here run to
+     55 characters, which wraps to three rows on a phone); the current line
+     takes priority and simply pushes the following line out of view for the
+     duration. Nothing is ever truncated mid-word. */
   .lyric-card {
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    max-height: clamp(0px, 34dvh, 340px);
-    margin-inline: auto;
+    /* One source of truth for the row metric: the font scales on the same
+       two-axis terms as the rest of the player, and the window is two of
+       whatever that resolves to. */
+    --lyric-size: clamp(13px, min(3.9cqi, 2.4dvh), 19px);
+    --lyric-row: calc(var(--lyric-size) * 1.72);
+    position: relative;
     width: 100%;
-    padding: 4px 2px;
-    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent);
-    mask-image: linear-gradient(to bottom, transparent, #000 12px, #000 calc(100% - 12px), transparent);
+    margin-inline: auto;
+    height: calc(var(--lyric-row) * 2);
+    overflow: hidden;
   }
   /* No lyrics: the card is removed from flow entirely rather than left as a
      gap, so a track without cached lyrics looks identical to the old build. */
   .lyric-card[hidden] { display: none; }
 
+  /* The full lyric. Offset by a transform so the current line's top edge sits
+     on the window's top edge; the transition is what makes the strip read as
+     advancing rather than teleporting. */
+  .lyric-track {
+    position: absolute;
+    inset: 0 0 auto;
+    transition: transform 0.44s var(--ease);
+    will-change: transform;
+  }
+
   .lyric-line {
-    font-size: clamp(13px, min(3.9cqi, 2.4dvh), 19px);
-    line-height: 1.75;
+    font-size: var(--lyric-size);
+    line-height: var(--lyric-row);
     color: var(--on-2);
-    padding: 3px 0;
+    /* Two rows max, then ellipsis. In practice only very long English lines
+       reach this; CJK lines are 10-14 characters and never wrap. */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
     transition: color 0.3s var(--ease), opacity 0.3s var(--ease);
   }
   .lyric-line.is-current {
     color: var(--on-1);
     font-weight: 600;
   }
-  /* Credits (作词/作曲) sit above the first sung line; dimming them keeps the
-     eye on the lyric without hiding information. */
-  .lyric-line.is-credit { opacity: 0.55; font-size: clamp(12px, min(3.4cqi, 2.1dvh), 16px); }
+  /* Credits (作词/作曲) sit above the first sung line. They used to be set
+     smaller; at a fixed two-row window a second font metric would make the
+     row height depend on which line happened to be current, so the strip
+     would jitter. Dimming alone carries the distinction now. */
+  .lyric-line.is-credit { opacity: 0.55; }
 
   /* --- Track title block --- */
   .track-block {
@@ -1370,7 +1396,9 @@
   </section>
 
   <div class="controls">
-    <div class="lyric-card" id="lyricCard" role="region" aria-label="歌词" hidden></div>
+    <div class="lyric-card" id="lyricCard" role="region" aria-label="歌词" hidden>
+      <div class="lyric-track" id="lyricTrack"></div>
+    </div>
 
     <div class="track-block">
       <div class="track-text">
@@ -1752,6 +1780,7 @@
         artFrame: document.getElementById('artFrame'),
         artCover: document.getElementById('artCover'),
         lyricCard: document.getElementById('lyricCard'),
+        lyricTrack: document.getElementById('lyricTrack'),
         consoleToast: document.getElementById('consoleToast'),
         toastText: document.getElementById('toastText'),
         toastRetryBtn: document.getElementById('toastRetryBtn')
@@ -1876,20 +1905,24 @@
       frame.classList.add('has-cover');
     }
 
-    /* Builds the lyric list. Kept separate from highlighting so a future
-       auto-scroll has a seam: `highlightLyric` marks a line, `scrollToLyric`
-       would bring it into view. */
+    /* Builds the lyric list. Kept separate from highlighting so the two
+       concerns stay separable: this one lays out the song once per track,
+       `highlightLyric` only ever moves the window and swaps a class. */
     renderLyrics(lines) {
       const card = this.els.lyricCard;
+      const track = this.els.lyricTrack;
       if (!lines || !lines.length) {
         card.hidden = true;
-        card.textContent = '';
+        track.textContent = '';
         this.lyricNodes = [];
         this.lyricIndex = -1;
         return;
       }
       card.hidden = false;
-      card.textContent = '';
+      track.textContent = '';
+      /* Reset the offset before measuring: the previous song's position would
+         otherwise be the starting transform for this one's first measurement. */
+      track.style.transform = 'translateY(0)';
       const frag = document.createDocumentFragment();
       this.lyricNodes = lines.map((line, index) => {
         const el = document.createElement('p');
@@ -1899,8 +1932,21 @@
         frag.appendChild(el);
         return el;
       });
-      card.appendChild(frag);
+      track.appendChild(frag);
       this.lyricIndex = -1;
+    }
+
+    /* Slides the window so `index` sits on its top edge. Measured, not
+       computed: a long English line wraps to two rows, so row height is not a
+       constant and index * rowHeight would drift. offsetTop is relative to
+       the track, which is the positioned ancestor of every line. */
+    seekToLine(index) {
+      const track = this.els.lyricTrack;
+      const node = this.lyricNodes[index];
+      /* Before the first timestamp there is no current line; hold the top of
+         the song rather than jumping somewhere arbitrary. */
+      const top = node ? node.offsetTop : 0;
+      track.style.transform = 'translateY(' + (-top) + 'px)';
     }
 
     /* Marks the line the estimated position falls on. Binary search: the
@@ -1926,6 +1972,7 @@
         next.classList.add('is-current');
         next.setAttribute('aria-current', 'true');
       }
+      this.seekToLine(Math.max(found, 0));
     }
 
     /* Play is a rounded triangle, pause two rounded bars. Both are drawn into
