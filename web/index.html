@@ -1581,6 +1581,10 @@
     }
   }
 
+  /* Consecutive "a session is Active" readings required before the play button
+     believes playback started. See updatePlayIcon. */
+  const PLAY_STREAK_TO_TRUST = 2;
+
   // --- 5. UI View & Controller ---
   class UIController {
     constructor(store, coordinator) {
@@ -1594,6 +1598,7 @@
          contradict it and the icon would visibly bounce. Same pattern as
          suppressFaderUntil above. */
       this.playing = false;
+      this.playStreak = 0;
       this.suppressPlayUntil = 0;
       this.debounceTimer = null;
       this.toastTimer = null;
@@ -1700,7 +1705,26 @@
     /* Play is a rounded triangle, pause two rounded bars. Both are drawn into
        the same 7..20 x 4..20 box so swapping them does not change the
        button's visual weight — same trick the skip glyphs use. */
-    updatePlayIcon(playing) {
+    /* `raw` is what the server reports, which is "is any session Active" — a
+       notification "ding" lights one up for about a second. So require two
+       consecutive Active readings before BELIEVING playback; otherwise a chime
+       would flip the icon to pause and back for no reason.
+
+       Going quiet is trusted immediately — pausing must feel instant, and a
+       false "paused" during a fade-out is harmless. Only the "playing" claim
+       is worth confirming, because that is the one a stray sound corrupts.
+
+       The optimistic flip on press primes the streak, so the user's own action
+       still confirms on the very next poll instead of waiting a second round. */
+    updatePlayIcon(raw) {
+      if (raw) this.playStreak += 1; else this.playStreak = 0;
+      this.setPlayIcon(this.playStreak >= PLAY_STREAK_TO_TRUST);
+    }
+
+    /* The actual glyph swap, deliberately ungated: the optimistic flip on press
+       has to be able to show "playing" on a single reading, which the streak
+       rule above would otherwise swallow. */
+    setPlayIcon(playing) {
       if (playing === this.playing) return;
       this.playing = playing;
       const icon = this.els.deckPlayIcon;
@@ -1812,7 +1836,10 @@
             // only reports Active once the app is actually making sound,
             // which lands well after this handler returns. The suppression
             // window stops the following poll from contradicting the guess.
-            this.updatePlayIcon(!this.playing);
+            this.setPlayIcon(!this.playing);
+            // Prime the streak so the first real poll after the press counts as
+            // the confirming reading, rather than stalling for a second round.
+            this.playStreak = this.playing ? 1 : 0;
             this.suppressPlayUntil = Date.now() + 2500;
           }
           try {
