@@ -247,6 +247,15 @@
         changing one without the other silently reintroduces a scrollbar.
         Refit them together, and re-measure overflow, never one alone.
 
+        PROVENANCE, 2nd revision: the lyric strip gained a top margin after
+        this fit, which adds ~20px of real chrome. Rather than refit and then
+        re-tune --art-scale to claw the size back, the ~20px is left as slack
+        and absorbed by --art-scale. Measured overflow is 0 at 360x640,
+        390x844, 430x932, 560x900, 720x1000, 900x900, 1280x720 and 1920x1080.
+        The invariant to preserve is that overflow stays 0; if the lyric's
+        margin ever changes materially, refit both numbers and re-check
+        --art-scale against them in the same pass.
+
         The 160px vh floor keeps the cover from collapsing to a stamp on very
         short windows; below that the page scrolls, which is the correct
         trade - an unreadable cover is worse than a scrollbar. */
@@ -431,7 +440,7 @@
        share of the radius, so the entire disc shrinks as one piece with every
        internal ratio preserved. Applying it here rather than to the record
        avoids re-tuning three separate sizes. */
-    --art-scale: 0.88;
+    --art-scale: 0.80;
     width: max(140px, calc(var(--art-scale) * min(100%, calc(100dvh - var(--chrome)))));
     aspect-ratio: 1;
     margin-inline: auto;
@@ -588,7 +597,11 @@
     --lyric-row: calc(var(--lyric-size) * 1.72);
     position: relative;
     width: 100%;
-    margin-inline: auto;
+    /* The strip had NO space above it: it sat flush against the artwork while
+       the gap below it was 21-29px, so the pair read as lopsided and the lyric
+       looked glued to the cover. Sized on the same two-axis terms as every
+       other gap in the column, so it tracks the viewport like the rest. */
+    margin: clamp(15px, min(5.4cqi, 3.3dvh), 30px) auto 0;
     height: calc(var(--lyric-row) * 2);
     overflow: hidden;
     /* Press-and-hold is the only way in, so the surface has to read as
