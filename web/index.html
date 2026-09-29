@@ -494,10 +494,17 @@
         rgba(255, 255, 255, 0) 360deg),
       radial-gradient(circle, var(--tint) 0 18%, transparent 18.5%),
       radial-gradient(circle, #06120D 0 2.5%, transparent 3%),
+      /* Groove pitch is a share of the disc's RADIUS, not a pixel count.
+         Percentage stops resolve against the gradient's own ending shape, so
+         the pattern scales with the element. A fixed 4px period made the
+         texture size-dependent: the same record showed 27 grooves on a 360px
+         phone and 57 on a 1920px monitor, so the surface read as a different
+         material at every breakpoint. 3.2% of radius reproduces the 4px pitch
+         at the common ~125px radius and holds ~31 periods at ANY size. */
       repeating-radial-gradient(circle,
-        rgba(255, 255, 255, 0.05) 0 1px,
-        rgba(0, 0, 0, 0.22) 1px 3px,
-        rgba(255, 255, 255, 0.03) 3px 4px),
+        rgba(255, 255, 255, 0.05) 0 0.8%,
+        rgba(0, 0, 0, 0.22) 0.8% 2.4%,
+        rgba(255, 255, 255, 0.03) 2.4% 3.2%),
       #0A0F0D;
     /* Symmetric for the same reason as .art-cover: this disc rotates too. */
     box-shadow:

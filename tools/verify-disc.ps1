@@ -76,7 +76,7 @@ function Invoke-Eval {
   return (($line.Trim() | ConvertFrom-Json) | ConvertFrom-Json)
 }
 
-$JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)return null;var c=getComputedStyle(e);var m=new DOMMatrix(c.transform);var b=e.getBoundingClientRect();return{tx:m.e,ty:m.f,ang:Math.atan2(m.b,m.a)*180/Math.PI,org:c.transformOrigin,side:e.offsetWidth,sh:c.boxShadow,op:c.opacity,cx:b.left+b.width/2,cy:b.top+b.height/2};}return JSON.stringify({cover:r('.art-cover'),vinyl:r('.vinyl'),rm:matchMedia('(prefers-reduced-motion: reduce)').matches});}"
+$JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)return null;var c=getComputedStyle(e);var m=new DOMMatrix(c.transform);var b=e.getBoundingClientRect();return{tx:m.e,ty:m.f,ang:Math.atan2(m.b,m.a)*180/Math.PI,org:c.transformOrigin,side:e.offsetWidth,sh:c.boxShadow,op:c.opacity,cx:b.left+b.width/2,cy:b.top+b.height/2,bg:c.backgroundImage};}return JSON.stringify({cover:r('.art-cover'),vinyl:r('.vinyl'),rm:matchMedia('(prefers-reduced-motion: reduce)').matches});}"
 $JS_FLAT = "function(){var s=document.createElement('style');s.id='qa-flat';s.textContent='html,body{background:#e9ecef !important;}.backdrop,svg,#water,.water{display:none !important;}';document.head.appendChild(s);return JSON.stringify({r:'flat'});}"
 $JS_HIDE = "function(){document.querySelector('.art-cover').style.visibility='hidden';document.querySelector('.vinyl').style.visibility='hidden';return JSON.stringify({r:'hidden'});}"
 $JS_SHOW = "function(){document.querySelector('.art-cover').style.visibility='';document.querySelector('.vinyl').style.visibility='';return JSON.stringify({r:'shown'});}"
@@ -119,6 +119,23 @@ try {
     Assert-That ($parity -lt 0.5) 'cover and vinyl turn in phase' "delta $([Math]::Round($parity, 2)) deg"
   }
 
+  # Groove pitch must be a share of the disc radius. Fixed px made the texture
+  # size-dependent - 27 grooves on a 360px phone, 57 on a 1920px monitor - so
+  # the same record read as a different material at every breakpoint.
+  # Isolate just the repeating-radial-gradient layer, then read its stops.
+  $at = $probe.vinyl.bg.IndexOf('repeating-radial-gradient')
+  $grooveBody = if ($at -ge 0) { $probe.vinyl.bg.Substring($at) } else { '' }
+  $groovePct = [regex]::Matches($grooveBody, '(-?[\d.]+)%')
+  $groovePx = [regex]::Matches($grooveBody, '(-?[\d.]+)px')
+  $periodPct = if ($groovePct.Count -ge 2) { [double]$groovePct[$groovePct.Count - 1].Groups[1].Value } else { 0 }
+  Assert-That ($periodPct -gt 0) `
+    'groove pitch is radius-relative, not a fixed pixel count' `
+    "groove layer = '$grooveBody'"
+  $periods = if ($periodPct -gt 0) { [Math]::Round(100 / $periodPct, 1) } else { 0 }
+  Assert-That ($periodPct -ge 2.0 -and $periodPct -le 5.0) `
+    'groove pitch is in a readable range' `
+    "period $periodPct% of radius -> $periods periods per disc"
+
   # Picture-disc geometry: the artwork is a label printed ON the record, so it
   # must be concentric with the vinyl AND strictly smaller than it - otherwise
   # the black grooves are hidden again and the disc reads as a bare photo.
@@ -155,7 +172,16 @@ try {
   $base = [System.Drawing.Bitmap]::FromFile($basePath)
   $cx = $base.Width / 2.0
   $cy = $base.Height / 2.0
-  Write-Host ("  sleeve {0}x{1}px, centre ({2:N1},{3:N1})" -f $base.Width, $base.Height, $cx, $cy) -ForegroundColor DarkGray
+  # All sampling bands are shares of the measured disc radius, never absolute
+  # pixels: the disc is fluid with the viewport, so absolute radii would fall
+  # off the element entirely at the small end.
+  $discR = $probe.vinyl.side / 2.0
+  $rDisc = $discR * 0.90      # interior of the record
+  $rSheenLo = $discR * 0.80   # exposed groove ring
+  $rSheenHi = $discR * 0.95
+  $rShLo = $discR * 1.02      # halo just outside the record edge
+  $rShHi = $discR * 1.40
+  Write-Host ("  sleeve {0}x{1}px, centre ({2:N1},{3:N1}), disc r={4:N1}px" -f $base.Width, $base.Height, $cx, $cy, $discR) -ForegroundColor DarkGray
   $offsets = @(); $widths = @(); $heights = @(); $shadowX = @(); $shadowY = @()
   # Luminance sampled around a circle inside the exposed groove ring, so the
   # conic sheen can be tested for 180deg periodicity. Averaged over three radii
@@ -176,17 +202,17 @@ try {
         if (([Math]::Abs($c.R - $q.R) + [Math]::Abs($c.G - $q.G) + [Math]::Abs($c.B - $q.B)) -lt 12) { continue }
         $ox = $x - $cx + 0.5; $oy = $y - $cy + 0.5
         $r = [Math]::Sqrt($ox * $ox + $oy * $oy)
-        if ($r -le 112) {
+        if ($r -le $rDisc) {
           $dxS += $ox; $dyS += $oy; $dxN++
           if ($x -lt $minX) { $minX = $x }; if ($x -gt $maxX) { $maxX = $x }
           if ($y -lt $minY) { $minY = $y }; if ($y -gt $maxY) { $maxY = $y }
-          if ($r -ge 100 -and $r -le 118) {
+          if ($r -ge $rSheenLo -and $r -le $rSheenHi) {
             # atan2 spans -PI..PI; shift to 0..2PI so the whole circle is binned.
             $bin = [int][Math]::Floor(([Math]::Atan2($oy, $ox) + [Math]::PI) / (2 * [Math]::PI) * $SheenBins) % $SheenBins
             $ringL[$bin] += (0.299 * $c.R + 0.587 * $c.G + 0.114 * $c.B)
             $ringN[$bin]++
           }
-        } elseif ($r -ge 126 -and $r -le 172) {
+        } elseif ($r -ge $rShLo -and $r -le $rShHi) {
           $shX += $ox; $shY += $oy; $shN++
         }
       }
