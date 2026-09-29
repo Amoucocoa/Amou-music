@@ -51,6 +51,7 @@ Add-Type -AssemblyName System.Drawing
 
 $script:Failures = [System.Collections.Generic.List[string]]::new()
 $script:Checks = 0
+$script:FixtureInjected = $false
 
 function Assert-That {
   param([bool]$Condition, [string]$Message, [string]$Detail = '')
@@ -155,6 +156,11 @@ try {
   }
 
   Invoke-Eval $JS_FLAT | Out-Null
+  # Registered for removal in `finally`: this fixture hides EVERY <svg> to drop
+  # the animated backdrop, so leaving it behind silently blanks the transport
+  # glyphs in the live page. A harness that contaminates the session under test
+  # is worse than no harness.
+  $script:FixtureInjected = $true
   Invoke-Eval $JS_HIDE | Out-Null
   Start-Sleep -Milliseconds 200
   $basePath = Join-Path $work 'baseline.png'
@@ -296,6 +302,12 @@ catch {
   exit 1
 }
 finally {
+  if ($script:FixtureInjected) {
+    Invoke-Cli @('--raw', 'eval', "function(){var s=document.getElementById('qa-flat'); if(s) s.remove(); return JSON.stringify({r:'fixture-removed'});}") | Out-Null
+  }
+  # Restore the live page: the run hid the artwork, so a reload is the only way
+  # to hand back a page in the state the user actually sees.
+  Invoke-Cli @('goto', $Url) | Out-Null
   if ([System.IO.Directory]::Exists($work)) {
     try { [System.IO.Directory]::Delete($work, $true) } catch { }
   }

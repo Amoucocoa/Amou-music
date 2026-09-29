@@ -201,20 +201,19 @@
        The artwork is square and equal to the column, so the ceiling is also
        what keeps the vinyl from becoming a wall on a large monitor.
 
-       Solving W + chrome(W) <= 100dvh gives the height term of that cap. The slope is
-       0.8 rather than the 0.636 that --chrome uses at full size, because the
-       44pt touch targets and the fader's own 44px height do NOT shrink: chrome
-       falls SUB-linearly as the column narrows, and fitting against the
-       full-size slope overflows every short viewport (measured: 14-33px of
-       scroll at 1280x900 through 768x1024 before this refit).
+        Solving W + chrome(W) <= 100dvh gives the height term of that cap.
+        The divisor is 1.86 because --chrome's slope is 0.86: the 44pt touch
+        targets and the fader's own 44px height do NOT shrink, so chrome falls
+        SUB-linearly as the column narrows, and a steeper divisor overflows
+        every short viewport.
 
-       260px is a floor, and it is EMPIRICAL rather than derived: below
-       ~280px of column the linear chrome model stops holding, because
-       narrow viewports wrap the artist line and add height the model
-       cannot see. Measured at 360x640: a 240px floor overflows by 49px,
-       a 260px floor by 8px. Treat the chrome fit as valid only for
-       W >= 280. */
-    max-width: max(260px, min(720px, calc((100dvh - 198px) / 1.8)));
+        260px is a floor, and it is EMPIRICAL rather than derived: below
+        ~280px of column the linear chrome model stops holding, because narrow
+        viewports wrap the artist line and add height the model cannot see.
+        After the 2026-09-30 refit even 360x640 fits (0px of scroll, down
+        from 53), and 1280x720 is the one size left with 3px. That residue is
+        the accepted trade: a hairline scroll beats a stamp-sized cover. */
+    max-width: max(260px, min(720px, calc((100dvh - 231px) / 1.86)));
     display: flex;
     flex-direction: column;
     container-type: inline-size;
@@ -224,21 +223,32 @@
     min-height: 100%;
 
     /* Everything on the page EXCEPT the artwork, as a function of the
-       container's inline size. This is what finally makes the BLOCK size an
-       input to the layout instead of an afterthought: the artwork subtracts
-       it from the viewport height.
+        container's inline size. This is what makes the BLOCK size an input to
+        the layout instead of an afterthought: the artwork subtracts it from
+        the viewport height.
 
-       Fitted at 80cqi + 198px from measured (width, chrome) pairs
-       280->421, 402->512, 463->567. Note the slope is well under 1: the
-       44pt touch targets and the fader's own 44px height are fixed, so
-       chrome does NOT shrink in proportion to the column. Fitting it
-       linearly against the full-size 560px row overstates how much room a
-       narrow column frees.
+        REFIT 2026-09-30. The previous fit (80cqi + 198px) was measured while
+        the lyric was a variable-height scroll region. Pinning it to a fixed
+        two-row strip raised the chrome floor, and the stale model
+        under-counted it - measured overflow was 41-62px at 560x900,
+        720x1000, 1280x720 and 1920x1080.
 
-       The 160px vh floor keeps the cover from collapsing to a stamp on very
-       short windows; below that the page scrolls, which is the correct
-       trade — an unreadable cover is worse than a scrollbar. */
-    --chrome: calc(80cqi + 198px);
+        Least squares over the measured pairs (colW, chrome) =
+        (260,459) (346,507) (390,553) (446,610) (490,652) gives a slope of
+        0.86; the intercept is nudged 223 -> 231 because a straight line
+        slightly under-predicts chrome at the wide end, and a scrollbar on a
+        desktop is the most visible kind. Slope well under 1 for the reason
+        above: fixed touch targets do not shrink with the column.
+
+        THIS IS A COUPLING, not two independent numbers. The max-width above
+        solves W + chrome(W) <= 100dvh using these same coefficients, so
+        changing one without the other silently reintroduces a scrollbar.
+        Refit them together, and re-measure overflow, never one alone.
+
+        The 160px vh floor keeps the cover from collapsing to a stamp on very
+        short windows; below that the page scrolls, which is the correct
+        trade - an unreadable cover is worse than a scrollbar. */
+    --chrome: calc(86cqi + 231px);
     justify-content: center;
   }
 
