@@ -33,6 +33,11 @@ PLAYBACK_ACTIONS = {
     "prev": VK_MEDIA_PREV_TRACK,
 }
 
+# AudioSessionControlState (mmdevapi.h). pycaw does not export this enum, and
+# the values are fixed by the OS ABI.
+_AUDIO_SESSION_INACTIVE = 0
+_AUDIO_SESSION_ACTIVE = 1
+
 _STOP = object()
 
 
@@ -126,12 +131,51 @@ def _require_device():
     return dev
 
 
+def _is_playing() -> bool:
+    """Approximate playback state, read from the Windows audio session graph.
+
+    There is no supported way for a desktop process to read the real media
+    playback state. SMTC (SystemMediaTransportControls) would give it, but
+    needs a WinRT projection this machine does not have — the same gap that
+    keeps `metadata` null.
+
+    The session graph, however, IS reachable through pycaw, and a session sits
+    in Active state exactly while its application is producing sound. So
+    "is anything playing right now" is answerable, which is all a play/pause
+    toggle actually needs.
+
+    Worth being explicit that this is a proxy, not SMTC: a game or a video
+    call making noise also reads as playing, and a paused player reads as
+    not playing. It is right for the common case (music from any app, which
+    is the whole point of this remote) and wrong only while non-media audio
+    is active. Costs about 33ms, against a 2s poll interval.
+
+    Never raises: the play button is decoration, and a failure to read it
+    must not take the volume slider or the device list down with it.
+    """
+    try:
+        from pycaw.pycaw import AudioUtilities
+
+        sessions = AudioUtilities.GetAudioSessionManager().GetSessionEnumerator()
+        for index in range(sessions.GetCount()):
+            try:
+                if sessions.GetSession(index).GetState() == _AUDIO_SESSION_ACTIVE:
+                    return True
+            except Exception:
+                # One uncooperative session must not hide the others.
+                continue
+    except Exception:
+        return False
+    return False
+
+
 def _read_state() -> dict:
     dev = _require_device()
     return {
         "volume": round(dev.volume_percent / 100.0, 4),
         "muted": bool(dev.EndpointVolume.GetMute()),
         "device": dev.FriendlyName or "未知设备",
+        "playing": _is_playing(),
         "device_id": _endpoint_id(dev),
         # Reserved for a future SystemMediaTransportControls integration: the
         # WinRT projection Python needs for this is not available on this

@@ -1305,7 +1305,7 @@
       </button>
 
       <button class="glyph glyph-primary" id="deckPlay" type="button" aria-label="播放或暂停">
-        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+        <svg id="deckPlayIcon" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
           <polygon points="8.5 5.5 18.5 12 8.5 18.5" stroke="currentColor" stroke-width="3" stroke-linejoin="round"></polygon>
         </svg>
       </button>
@@ -1587,6 +1587,14 @@
       this.store = store;
       this.coordinator = coordinator;
       this.suppressFaderUntil = 0;
+      /* Play/pause is the one control whose truth arrives late: the session
+         graph only flips once the app actually starts making sound, which is
+         after the command returns. So a press flips the icon immediately and
+         suppresses reconciliation briefly, otherwise the next poll would
+         contradict it and the icon would visibly bounce. Same pattern as
+         suppressFaderUntil above. */
+      this.playing = false;
+      this.suppressPlayUntil = 0;
       this.debounceTimer = null;
       this.toastTimer = null;
 
@@ -1604,6 +1612,7 @@
         presets: document.querySelectorAll('.preset-key'),
         deckPrev: document.getElementById('deckPrev'),
         deckPlay: document.getElementById('deckPlay'),
+        deckPlayIcon: document.getElementById('deckPlayIcon'),
         deckNext: document.getElementById('deckNext'),
         trackTitle: document.getElementById('trackTitle'),
         trackArtist: document.getElementById('trackArtist'),
@@ -1666,6 +1675,12 @@
       this.els.cutText.textContent = state.muted ? '已静音' : '静音';
       this.updateCutIcon(state.muted, pct);
 
+      // Play/pause glyph. Skipped while a press is still settling — see
+      // suppressPlayUntil in the constructor.
+      if (Date.now() > this.suppressPlayUntil) {
+        this.updatePlayIcon(!!state.playing);
+      }
+
       // Preset buttons state
       this.els.presets.forEach(btn => {
         const val = Number(btn.dataset.preset);
@@ -1679,6 +1694,23 @@
       } else {
         this.els.trackTitle.textContent = '全局系统音频会话';
         this.els.trackArtist.textContent = state.device ? ('输出设备: ' + state.device) : '网易云 / QQ音乐 / Spotify / 浏览器';
+      }
+    }
+
+    /* Play is a rounded triangle, pause two rounded bars. Both are drawn into
+       the same 7..20 x 4..20 box so swapping them does not change the
+       button's visual weight — same trick the skip glyphs use. */
+    updatePlayIcon(playing) {
+      if (playing === this.playing) return;
+      this.playing = playing;
+      const icon = this.els.deckPlayIcon;
+      if (icon) {
+        icon.innerHTML = playing
+          ? '<rect x="7" y="4" width="4.4" height="16" rx="2.2"></rect><rect x="15.6" y="4" width="4.4" height="16" rx="2.2"></rect>'
+          : '<polygon points="8.5 5.5 18.5 12 8.5 18.5" stroke="currentColor" stroke-width="3" stroke-linejoin="round"></polygon>';
+      }
+      if (this.els.deckPlay) {
+        this.els.deckPlay.setAttribute('aria-label', playing ? '暂停' : '播放');
       }
     }
 
@@ -1775,6 +1807,14 @@
       const bindDeckKey = (btnEl, action) => {
         btnEl.addEventListener('click', async () => {
           Haptics.action();
+          if (action === 'play_pause') {
+            // Flip now rather than after the next poll: the session graph
+            // only reports Active once the app is actually making sound,
+            // which lands well after this handler returns. The suppression
+            // window stops the following poll from contradicting the guess.
+            this.updatePlayIcon(!this.playing);
+            this.suppressPlayUntil = Date.now() + 2500;
+          }
           try {
             await AudioRemoteAPI.playback(action);
           } catch (err) {
