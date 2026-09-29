@@ -426,7 +426,13 @@
        elastic block, and it is what absorbs every height conflict. The floor
        keeps it legible; margin-inline centres it once it is narrower than
        the column, so the column edges stay flush with the text below. */
-    width: max(160px, min(100%, calc(100dvh - var(--chrome))));
+    /* One knob for the whole assembly. Scaling the PLATE is enough: the record
+       and the label are both percentages of it, and the groove pitch is a
+       share of the radius, so the entire disc shrinks as one piece with every
+       internal ratio preserved. Applying it here rather than to the record
+       avoids re-tuning three separate sizes. */
+    --art-scale: 0.88;
+    width: max(140px, calc(var(--art-scale) * min(100%, calc(100dvh - var(--chrome)))));
     aspect-ratio: 1;
     margin-inline: auto;
     /* CIRCULAR, not a rounded square. A record is round; a square frame around
@@ -599,6 +605,11 @@
     font-size: var(--lyric-size);
     line-height: var(--lyric-row);
     color: var(--on-2);
+    /* Centre each LINE, not the strip. The strip is a translated full-height
+       column, so centring it would only centre its widest line and leave
+       every other line ragged. */
+    text-align: center;
+    text-wrap: balance;
     /* Two rows max, then ellipsis. In practice only very long English lines
        reach this; CJK lines are 10-14 characters and never wrap. */
     display: -webkit-box;
