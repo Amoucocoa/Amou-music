@@ -431,17 +431,19 @@
      so a track whose artwork has not been cached yet still shows the record
      rather than an empty frame. */
   .art-cover {
-    /* 38% of the sleeve against the vinyl's 66% - i.e. the artwork is ~58% of
-       the record's diameter, which is what a real picture disc looks like.
-       Same centring contract as .vinyl below, so the two stay concentric and
-       the shared rotation tween keeps them locked. */
+    /* 48% of the sleeve against the vinyl's 66% - i.e. the artwork is ~73% of
+       the record's diameter: a generous label that still leaves an unmistakable
+       black ring of grooves around it. Past ~0.8 the disc stops reading as a
+       record and becomes a photo on a dark circle. Same centring contract as
+       .vinyl below, so the two stay concentric and the shared rotation tween
+       keeps them locked. */
     position: absolute;
     /* Centred WITHOUT transform: `inset:0` + `margin:auto` puts the box dead
        centre in both axes, so the stylesheet contributes nothing to
        `transform` and the rotation tween owns that property outright. */
     inset: 0;
     margin: auto;
-    width: 38%;
+    width: 48%;
     aspect-ratio: 1;
     border-radius: 50%;
     object-fit: cover;
@@ -453,8 +455,9 @@
        0.00px. Sized for a small label sitting ON the record rather than
        replacing it: a tight symmetric contact darkening, no wide halo. */
     box-shadow:
-      0 0 7px rgba(0, 0, 0, 0.34),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+      0 0 12px rgba(0, 0, 0, 0.42),
+      0 0 3px rgba(0, 0, 0, 0.30),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.13);
     /* Only opacity transitions. The rotation tween owns `transform`
        outright; a transform transition here would fight it every frame. */
     transition: opacity 0.45s var(--ease);
