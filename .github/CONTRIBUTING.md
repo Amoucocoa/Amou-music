@@ -133,6 +133,13 @@ only sees one of them.
   centred per line, transport keys at least 44pt, and no page overflow at any of
   eight viewports from 360x640 to 1920x1080.
 
+  That overflow check runs in **both** the collapsed and the expanded state, and
+  the expanded run also asserts the transport row is still on screen. It used to
+  measure only the collapsed page, which is precisely how a 385px overflow went
+  unnoticed: expanding the lyric card is a gesture, not the default view, so no
+  measurement taken at rest could ever see it. If you add a state that changes
+  the layout, measure that state too.
+
 ## Invariants
 
 ### The height budget is a coupled pair

@@ -198,6 +198,12 @@
      so the layout grows with the window and freezes cleanly at the cap —
      unlike vw, which would keep inflating past it. */
   .app {
+    /* Anchors the expanded lyric overlay. Anchoring it here rather than to the
+       viewport means the card inherits the column's width and horizontal
+       position for free -- no second copy of the max-width formula to rot.
+       Measured: the app's bottom edge sits a constant 26px above the
+       viewport's, which comes from the body's padding. */
+    position: relative;
     width: 100%;
     /* The COLUMN follows the viewport WIDTH (width:100% below the ceiling)
        and is additionally height-budgeted — otherwise a short-but-wide window
@@ -631,7 +637,36 @@
      itself becomes the scroller, so the current line is kept in view with
      scrollTop instead of a translate. */
   .lyric-card.is-expanded {
-    height: min(56dvh, calc(100dvh - 220px));
+    /* An OVERLAY, not a taller in-flow block.
+
+       In flow it grew from two rows to 56dvh and pushed everything below it
+       down: at 1280x900 that overflowed the page by 385px and put the play,
+       previous and next keys 260px below the fold -- you could not skip a
+       song while reading that song's lyrics. Out of flow its contribution
+       to document height is zero, so the overflow stops being something to
+       tune and becomes something that cannot happen. The height-budget
+       coefficients (--chrome and the column max-width) stay untouched.
+
+       Sized with top + bottom against the app box rather than the viewport,
+       expressed as a computed height because `auto` does not transition and
+       the open gesture is a height ramp.
+
+       Both offsets are measured, not guessed, and the first pass of these
+       numbers was too small: it put the card over the header at 430x932 and
+       over the transport row at 430x932 and 720x1000. The values below are
+       the ones that clear both across every viewport measured.
+       */
+    --lyric-overlay-top: clamp(112px, 14dvh, 148px);
+    --lyric-overlay-bottom: clamp(176px, 26dvh, 300px);
+    position: absolute;
+    inset-inline: 0;
+    margin: 0 auto;
+    top: var(--lyric-overlay-top);
+    height: calc(100% - var(--lyric-overlay-top) - var(--lyric-overlay-bottom));
+    /* Above the artwork and the transport row; below the settings sheet
+       (900/901) and the console toast (999), which must stay readable while
+       the lyrics are open. */
+    z-index: 800;
     overflow-y: auto;
     overscroll-behavior: contain;
     cursor: zoom-out;

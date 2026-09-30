@@ -111,6 +111,8 @@ $JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)retu
 $JS_FLAT = "function(){var s=document.createElement('style');s.id='qa-flat';s.textContent='html,body{background:#e9ecef !important;}.backdrop,svg,#water,.water{display:none !important;}';document.head.appendChild(s);return JSON.stringify({r:'flat'});}"
 $JS_HIDE = "function(){document.querySelector('.art-cover').style.visibility='hidden';document.querySelector('.vinyl').style.visibility='hidden';return JSON.stringify({r:'hidden'});}"
 $JS_SHOW = "function(){document.querySelector('.art-cover').style.visibility='';document.querySelector('.vinyl').style.visibility='';return JSON.stringify({r:'shown'});}"
+$JS_FOCUS_LYRIC = "function(){var c=document.getElementById('lyricCard');if(!c||c.hidden)return JSON.stringify({r:'skip'});c.focus();return JSON.stringify({r:'focused'});}"
+$JS_EXPANDED = "function(){var c=document.getElementById('lyricCard');var b=c.getBoundingClientRect();var t=document.getElementById('deckPrev').getBoundingClientRect();return JSON.stringify({exp:c.classList.contains('is-expanded'),over:Math.max(document.body.scrollHeight,document.documentElement.scrollHeight)-window.innerHeight,clear:b.bottom<=t.top});}"
 $JS_LAYOUT = "function(){function m(s){var e=document.querySelector(s);if(!e)return null;var b=e.getBoundingClientRect();var c=getComputedStyle(e);return{w:b.width,h:b.height,side:e.offsetWidth,hidden:e.hidden,radius:c.borderRadius,align:c.textAlign,lh:parseFloat(c.lineHeight)};}function k(id){var e=document.getElementById(id);if(!e)return null;var b=e.getBoundingClientRect();return{w:Math.round(b.width),h:Math.round(b.height)};}return JSON.stringify({card:m('.lyric-card'),line:m('.lyric-line'),art:m('.art'),vinyl:m('.vinyl'),cover:m('.art-cover'),keys:[k('deckPrev'),k('deckPlay'),k('deckNext')]});}"
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('verify-disc-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
@@ -461,6 +463,28 @@ try {
     Assert-That ($o.over -le 0) `
       "no page overflow at $($vp[0])x$($vp[1])" `
       "$($o.over)px past the fold"
+
+    # Now the same viewport with the lyrics EXPANDED. The card is an overlay, so
+    # it must contribute nothing to the page height -- and the transport row has
+    # to stay on screen, or expanding to read a song's lyrics costs you the
+    # ability to skip it. Measuring only the collapsed state is what let this
+    # regress: the defect was invisible until someone actually opened the card.
+    if ((Invoke-Eval $JS_FOCUS_LYRIC).r -ne 'skip') {
+      Invoke-Cli @('press', 'Enter') | Out-Null
+      Start-Sleep -Milliseconds 700
+      $e = Invoke-Eval $JS_EXPANDED
+      Assert-That ($e.exp) `
+        "the lyric card expands at $($vp[0])x$($vp[1])" `
+        'the card did not take the expanded state'
+      Assert-That ($e.over -le 0) `
+        "no page overflow with the lyrics expanded at $($vp[0])x$($vp[1])" `
+        "$($e.over)px past the fold"
+      Assert-That $e.clear `
+        "the transport row stays reachable while reading at $($vp[0])x$($vp[1])" `
+        'the card covers the play / previous / next keys'
+      Invoke-Cli @('press', 'Enter') | Out-Null
+      Start-Sleep -Milliseconds 400
+    }
   }
 
   # Put the window back before reporting, so the next run starts from the
