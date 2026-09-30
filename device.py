@@ -73,6 +73,13 @@ _MEDIA_PROCESSES = frozenset(
 
 _STOP = object()
 
+# One stuck job must not be able to wedge every HTTP request. COM calls carry
+# no time bound of their own, so this is the only thing between a single hung
+# call and a remote that stops answering until the process is restarted. Sized
+# above the worst case already on the queue: three sqlite reads at
+# timeout=2.0 each, plus COM.
+_JOB_TIMEOUT_S = 10.0
+
 
 class DeviceError(RuntimeError):
     """The default audio endpoint could not be reached (unplugged, disabled...)."""
@@ -119,7 +126,8 @@ class DeviceWorker:
         """Run *func* on the worker thread and return its result."""
         slot = {"event": threading.Event()}
         self._queue.put((func, args, slot))
-        slot["event"].wait()
+        if not slot["event"].wait(_JOB_TIMEOUT_S):
+            raise DeviceError("device worker did not answer in time")
         if "error" in slot:
             raise slot["error"]
         return slot["value"]

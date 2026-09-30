@@ -55,6 +55,14 @@
        an accent-tinted rim reads as a coloured halo bleeding out from behind
        the disc. Neutral smoke keeps it reading as glass. */
     --sleeve:    rgba(24, 28, 32, 0.26);
+    /* The record's own near-blacks, derived from the hue like every other
+       surface colour here. Both were literals (#06120D, #0A0F0D) while the
+       comment above promised they would follow, and at ~5% lightness that
+       residual green cast is precisely the "this element ignored the accent"
+       report. S/L stay pinned: rotating the hue must not move the disc's
+       contrast against the glass it sits on. */
+    --vinyl-hole: hsl(var(--accent-h) 50% 5%);
+    --vinyl-base: hsl(var(--accent-h) 20% 5%);
 
     /* Accent is authored as three HSL components so the settings sliders can
        drive it. Everything downstream derives from these three numbers, so a
@@ -316,12 +324,12 @@
     width: 132%;
     height: 132%;
     will-change: transform;
-    animation: water-drift 40s ease-in-out infinite alternate;
-  }
-
-  @keyframes water-drift {
-    0%   { transform: translate3d(0, 0, 0) scale(1); }
-    100% { transform: translate3d(-2.5%, 2.2%, 0) scale(1.07); }
+    /* The parallax drift belongs to the GSAP tween and to nothing else. A CSS
+       keyframe here sits ABOVE the author's inline transform in the cascade, so
+       every value the tween wrote was discarded while the layer still appeared
+       to move -- both ran at 40s. The background-speed slider therefore reached
+       the feTurbulence noise but never this layer. Reduced motion is handled
+       where it belongs, by pausing the tween. */
   }
 
   .water-svg .w-base     { fill: var(--water-base); }
@@ -468,12 +476,11 @@
      so a track whose artwork has not been cached yet still shows the record
      rather than an empty frame. */
   .art-cover {
-    /* 48% of the sleeve against the vinyl's 66% - i.e. the artwork is ~73% of
-       the record's diameter: a generous label that still leaves an unmistakable
-       black ring of grooves around it. Past ~0.8 the disc stops reading as a
-       record and becomes a photo on a dark circle. Same centring contract as
-       .vinyl below, so the two stay concentric and the shared rotation tween
-       keeps them locked. */
+    /* A generous label that still leaves an unmistakable black ring of grooves
+       around it. Past ~0.8 of the record the disc stops reading as a record and
+       becomes a photo on a dark circle. Same centring contract as .vinyl below,
+       so the two stay concentric and the shared rotation tween keeps them
+       locked. The exact ratio is pinned by the verifier. */
     position: absolute;
     /* Centred WITHOUT transform: `inset:0` + `margin:auto` puts the box dead
        centre in both axes, so the stylesheet contributes nothing to
@@ -537,7 +544,7 @@
         rgba(255, 255, 255, 0) 268deg,
         rgba(255, 255, 255, 0) 360deg),
       radial-gradient(circle, var(--tint) 0 18%, transparent 18.5%),
-      radial-gradient(circle, #06120D 0 2.5%, transparent 3%),
+      radial-gradient(circle, var(--vinyl-hole) 0 2.5%, transparent 3%),
       /* Groove pitch is a share of the disc's RADIUS, not a pixel count.
          Percentage stops resolve against the gradient's own ending shape, so
          the pattern scales with the element. A fixed 4px period made the
@@ -562,7 +569,7 @@
         rgba(255, 255, 255, 0.020) 0 0.6%,
         rgba(0, 0, 0, 0.06) 0.6% 1.8%,
         rgba(255, 255, 255, 0.010) 1.8% 2.4%),
-      #0A0F0D;
+      var(--vinyl-base);
     /* Symmetric for the same reason as .art-cover: this disc rotates too. */
     box-shadow:
       0 0 30px rgba(0, 0, 0, 0.38),
@@ -1996,12 +2003,25 @@
       if (img.getAttribute('src') === url) return;
       img.alt = track.title + (track.artist ? ' - ' + track.artist : '');
       img.onerror = () => {
-        // 404 / no cached art: fall back to the disc permanently for this track.
+        // Reassigning `src` aborts the previous request, but the abort still
+        // fires `error` -- at whatever handler is installed NOW, which is the new
+        // track's. Without this guard it stripped artwork off a song whose image
+        // had not even started loading, and since renderCover only re-runs on a
+        // key change the disc stayed bare until the next track.
+        if (img.getAttribute('src') !== url) return;
+        // 404 / no cached art: fall back to the disc for this track.
         frame.classList.remove('has-cover');
         img.removeAttribute('src');
       };
+      img.onload = () => {
+        if (img.getAttribute('src') !== url) return;
+        // Only now does the plate carry artwork. Adding the class at assignment
+        // time showed an empty sleeve for the length of the fetch, which is the
+        // opposite of the "record stays visible underneath" promise the markup
+        // makes about this element.
+        frame.classList.add('has-cover');
+      };
       img.src = url;
-      frame.classList.add('has-cover');
     }
 
     /* Builds the lyric list. Kept separate from highlighting so the two
@@ -2032,6 +2052,11 @@
         return el;
       });
       track.appendChild(frag);
+      /* Fresh nodes, so any offset the expanded card held belonged to the song
+         that just ended. A track change in the first few seconds -- position
+         still before the first timestamp, so highlightLyric finds nothing and
+         returns early without seeking -- otherwise parks the card mid-song. */
+      card.scrollTop = 0;
       this.lyricIndex = -1;
     }
 
@@ -2880,10 +2905,10 @@ window.AmuTheme = (function () {
     applyOctaves(readWater('amou.settings.waterOctaves', OCTAVES_DEF, 1, 4));
     applyVignette(readWater('amou.settings.waterVignette', VIGNETTE_DEF, 0, 200));
   }
-  /* The motion layer owns the backdrop now. Without GSAP there is nothing to
-     drive (SMIL was removed to avoid two writers on one attribute), so the
-     gradient simply stays static — the CSS keyframe drift still runs because
-     the gsap-driven class is never added. */
+  /* The motion layer owns the backdrop outright. Without GSAP there is nothing
+     to drive (SMIL and the CSS keyframe drift were both removed rather than
+     left to race it -- two writers on one transform means one of them is
+     silently ignored), so the gradient simply stays static. */
   function apply(speed) {
     if (window.AmuAnim) window.AmuAnim.water(speed);
   }
@@ -2920,14 +2945,16 @@ window.AmuTheme = (function () {
         outputSel.textContent = '没有可用的输出设备';
       }
       outputSel.disabled = false;
-    }).catch(function (err) {
-      outputSel.textContent = '读取失败';
-      outputSel.disabled = true;
-      if (outputNote) outputNote.textContent = err.message || '读取输出设备失败';
-    }).then(function () {
       if (outputNote) {
         outputNote.textContent = '切换会同时改写系统三种默认角色';
       }
+    }).catch(function (err) {
+      outputSel.textContent = '读取失败';
+      outputSel.disabled = true;
+      // Written here, never in a trailing .then: a .then after a .catch runs
+      // on both paths, so the reset landed a tick later and wiped the reason
+      // the read failed -- the only actionable part of the message.
+      if (outputNote) outputNote.textContent = err.message || '读取输出设备失败';
     });
   }
 

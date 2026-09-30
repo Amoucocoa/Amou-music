@@ -46,6 +46,10 @@ param(
   [int]$SheenBins = 72
 )
 
+# Reference window for the geometry sections. Wide enough that the disc sits far
+# above the sub-pixel noise floor, short enough to need no scrolling.
+$RefViewport = @(1280, 900)
+
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
@@ -60,7 +64,7 @@ function Assert-That {
     Write-Host "  [PASS] $Message" -ForegroundColor DarkGreen
   } else {
     Write-Host "  [FAIL] $Message $Detail" -ForegroundColor Red
-    $script:Failures.Add($Message)
+    $script:Failures.Add("$Message | $Detail")
   }
 }
 
@@ -77,10 +81,20 @@ function Invoke-Eval {
   return (($line.Trim() | ConvertFrom-Json) | ConvertFrom-Json)
 }
 
+# Run on BOTH exit paths. The reduced-motion early exit used to skip this
+# entirely, so a page carrying a real JS error still reported green on any
+# machine that had the accessibility setting switched on.
+function Test-Console {
+  $raw = Invoke-Cli @('console', 'error')
+  $errs = @($raw -split "`r?`n" | Where-Object { $_ -match 'Uncaught|SyntaxError|TypeError|\[ERROR\]' })
+  Assert-That ($errs.Count -eq 0) 'no console errors' ($errs -join ' | ')
+}
+
 $JS_PROBE = "function(){function r(s){var e=document.querySelector(s);if(!e)return null;var c=getComputedStyle(e);var m=new DOMMatrix(c.transform);var b=e.getBoundingClientRect();return{tx:m.e,ty:m.f,ang:Math.atan2(m.b,m.a)*180/Math.PI,org:c.transformOrigin,side:e.offsetWidth,sh:c.boxShadow,op:c.opacity,cx:b.left+b.width/2,cy:b.top+b.height/2,bg:c.backgroundImage};}return JSON.stringify({cover:r('.art-cover'),vinyl:r('.vinyl'),rm:matchMedia('(prefers-reduced-motion: reduce)').matches,art:r('.art').side});}"
 $JS_FLAT = "function(){var s=document.createElement('style');s.id='qa-flat';s.textContent='html,body{background:#e9ecef !important;}.backdrop,svg,#water,.water{display:none !important;}';document.head.appendChild(s);return JSON.stringify({r:'flat'});}"
 $JS_HIDE = "function(){document.querySelector('.art-cover').style.visibility='hidden';document.querySelector('.vinyl').style.visibility='hidden';return JSON.stringify({r:'hidden'});}"
 $JS_SHOW = "function(){document.querySelector('.art-cover').style.visibility='';document.querySelector('.vinyl').style.visibility='';return JSON.stringify({r:'shown'});}"
+$JS_LAYOUT = "function(){function m(s){var e=document.querySelector(s);if(!e)return null;var b=e.getBoundingClientRect();var c=getComputedStyle(e);return{w:b.width,h:b.height,side:e.offsetWidth,hidden:e.hidden,radius:c.borderRadius,align:c.textAlign,lh:parseFloat(c.lineHeight)};}function k(id){var e=document.getElementById(id);if(!e)return null;var b=e.getBoundingClientRect();return{w:Math.round(b.width),h:Math.round(b.height)};}return JSON.stringify({card:m('.lyric-card'),line:m('.lyric-line'),art:m('.art'),vinyl:m('.vinyl'),cover:m('.art-cover'),keys:[k('deckPrev'),k('deckPlay'),k('deckNext')]});}"
 
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ('verify-disc-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
 [System.IO.Directory]::CreateDirectory($work) | Out-Null
@@ -89,6 +103,11 @@ try {
   Write-Host "`nDisc centring verification - $Url" -ForegroundColor Cyan
 
   Invoke-Cli @('goto', $Url) | Out-Null
+  # Pin the window before measuring anything. The session keeps whatever size it
+  # was left at, so the pixel section reported a different sleeve diameter from
+  # run to run (150px one run, 212px the next) with no change to the page. A
+  # geometric assertion whose baseline moves is not an assertion.
+  Invoke-Cli @('resize', "$RefViewport[0]", "$RefViewport[1]") | Out-Null
   Start-Sleep -Seconds 3
 
   Write-Host "`n1. Transform contract" -ForegroundColor Cyan
@@ -151,15 +170,70 @@ try {
   # `art` is the plate's offsetWidth (a number), not an object. The PLATE is the
   # larger of the two, so the rim is plate minus record - not the other way round.
   $rim = ($probe.art - $probe.vinyl.side) / 2.0
-  Assert-That (($rim -gt 2) -and ($rim -lt ($probe.art * 0.12))) `
+  # 1%-4% of the plate. Under 1% the glass loses its lit edge; over 4% the
+  # record stops reading as a record again. Measured 2.03% at 360x640.
+  Assert-That (($rim -gt ($probe.art * 0.01)) -and ($rim -lt ($probe.art * 0.04))) `
     'a rim of glass still shows around the record' `
-    "rim $rim px on a $($probe.art) px plate (record $($probe.vinyl.side) px)"
+    "rim $rim px = $([Math]::Round(100 * $rim / $probe.art, 2))% of a $($probe.art) px plate (record $($probe.vinyl.side) px)"
 
-  Write-Host "`n2. Pixel measurement" -ForegroundColor Cyan
+  Write-Host "`n2. Pinned layout ratios" -ForegroundColor Cyan
+  $lay = Invoke-Eval $JS_LAYOUT
+  if (-not $lay.art) {
+    Assert-That $false 'the record plate exists'
+  } else {
+    # A rounded SQUARE plate is the pre-redesign regression: the record is round,
+    # so a square frame only adds dead area and reads as a framed photograph.
+    Assert-That ($lay.art.radius -eq '50%') `
+      'the glass plate is a circle, not a rounded square' `
+      "border-radius $($lay.art.radius)"
+
+    $coverOverPlate = $lay.cover.side / $lay.art.side
+    Assert-That ([Math]::Abs($coverOverPlate - 0.70) -lt 0.02) `
+      'artwork label is 70% of the plate' `
+      "$([Math]::Round($coverOverPlate, 4)) (want 0.70 +/-0.02)"
+
+    # 70/96. The record must never reach 100%: it would cover the frost, the
+    # inner stroke and the lit edge, and the glass plate would silently stop
+    # existing. This ratio is the only thing holding that line.
+    $coverOverVinyl = $lay.cover.side / $lay.vinyl.side
+    Assert-That (($coverOverVinyl -gt 0.30) -and ($coverOverVinyl -lt 0.85)) `
+      'artwork leaves the record ring visible' `
+      "$([Math]::Round($coverOverVinyl, 4)) of the record (want 0.30-0.85)"
+  }
+
+  if ($lay.card -and -not $lay.card.hidden -and $lay.line) {
+    # The two-row window is a fixed budget, not a scroll region. Row height comes
+    # from one variable, so a credit line set smaller cannot resize it and make
+    # the window jitter as the highlight moves.
+    $want = 2 * $lay.line.lh
+    Assert-That ([Math]::Abs($lay.card.h - $want) -lt 1.0) `
+      'the lyric window is exactly two rows' `
+      "$([Math]::Round($lay.card.h, 2))px vs 2 x $([Math]::Round($lay.line.lh, 2))px = $([Math]::Round($want, 2))px"
+    Assert-That ($lay.line.align -eq 'center') `
+      'lyric lines are centred individually' `
+      "text-align $($lay.line.align)"
+  } else {
+    Write-Host "  [SKIP] no lyric is playing, so the two-row window cannot be measured" -ForegroundColor Yellow
+  }
+
+  $tooSmall = @($lay.keys | Where-Object { $_ -and ($_.w -lt 44 -or $_.h -lt 44) })
+  Assert-That ($tooSmall.Count -eq 0) `
+    'transport keys keep a 44pt touch target' `
+    (($lay.keys | ForEach-Object { "$($_.w)x$($_.h)" }) -join ', ')
+
+  Write-Host "`n3. Pixel measurement" -ForegroundColor Cyan
   if ($probe.rm) {
     Write-Host "  [SKIP] prefers-reduced-motion is on; the disc does not turn." -ForegroundColor Yellow
-    Write-Host "`nPASS - $script:Checks checks (rotation checks skipped)." -ForegroundColor Green
-    exit 0
+    Write-Host "`n4. Console" -ForegroundColor Cyan
+    Test-Console
+    Write-Host ''
+    if ($script:Failures.Count -eq 0) {
+      Write-Host "PASS - $script:Checks checks (rotation checks skipped)." -ForegroundColor Green
+      exit 0
+    }
+    Write-Host "FAIL - $($script:Failures.Count) of $script:Checks checks failed" -ForegroundColor Red
+    $script:Failures | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
+    exit 1
   }
 
   Invoke-Eval $JS_FLAT | Out-Null
@@ -289,10 +363,33 @@ try {
     Assert-That $false 'groove ring was measurable' 'no pixels sampled in the ring'
   }
 
-  Write-Host "`n3. Console" -ForegroundColor Cyan
-  $consoleRaw = Invoke-Cli @('console', 'error')
-  $errLines = @($consoleRaw -split "`r?`n" | Where-Object { $_ -match 'Uncaught|SyntaxError|TypeError|\[ERROR\]' })
-  Assert-That ($errLines.Count -eq 0) 'no console errors' ($errLines -join ' | ')
+  # Hand the page back BEFORE reading the console. The fixture hides every <svg>
+  # to flatten the backdrop, which starves GSAP of icons it is animating and can
+  # raise errors that belong to the harness rather than to the product.
+  if ($script:FixtureInjected) {
+    Invoke-Cli @('--raw', 'eval', "function(){var s=document.getElementById('qa-flat'); if(s) s.remove(); return JSON.stringify({r:'fixture-removed'});}") | Out-Null
+    $script:FixtureInjected = $false
+  }
+  Invoke-Cli @('goto', $Url) | Out-Null
+  Start-Sleep -Seconds 2
+
+  Write-Host "`n4. Console" -ForegroundColor Cyan
+  Test-Console
+
+  # The page is whole again here, which is the only point at which the layout
+  # budget can be measured honestly. A silent scrollbar is exactly the kind of
+  # regression that survived three rounds of lyric and disc tuning, because
+  # nothing was watching for it.
+  Write-Host "`n5. Viewport overflow budget" -ForegroundColor Cyan
+  foreach ($vp in @(@(360, 640), @(390, 844), @(430, 932), @(560, 900),
+                    @(720, 1000), @(900, 900), @(1280, 720), @(1920, 1080))) {
+    Invoke-Cli @('resize', "$($vp[0])", "$($vp[1])") | Out-Null
+    Start-Sleep -Milliseconds 700
+    $o = Invoke-Eval "function(){return JSON.stringify({over:document.body.scrollHeight-window.innerHeight});}"
+    Assert-That ($o.over -le 0) `
+      "no page overflow at $($vp[0])x$($vp[1])" `
+      "$($o.over)px past the fold"
+  }
 
   Write-Host ''
   if ($script:Failures.Count -eq 0) {
@@ -315,6 +412,7 @@ finally {
   # Restore the live page: the run hid the artwork, so a reload is the only way
   # to hand back a page in the state the user actually sees.
   Invoke-Cli @('goto', $Url) | Out-Null
+  Invoke-Cli @('resize', "$RefViewport[0]", "$RefViewport[1]") | Out-Null
   if ([System.IO.Directory]::Exists($work)) {
     try { [System.IO.Directory]::Delete($work, $true) } catch { }
   }

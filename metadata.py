@@ -66,12 +66,11 @@ _PLAYER_CLOSED_GRACE_MS = 60 * 1000
 # leftovers from a previous session.
 _PLAYER_PROCESSES = ("cloudmusic.exe",)
 
-# How long a track change is allowed to take before we accept that the new
-# song simply has no cached lyric. The player usually fetches within a second
-# or two; a cold start on a weak connection is slower, hence the re-armed
-# window below.
+# How long a track change is allowed to keep showing the PREVIOUS song's lyric
+# before we accept that the new one has no cached entry. A slow or cold fetch
+# needs no second window: it is caught by the entry-change check, which never
+# reads this clock.
 _LYRIC_GRACE_MS = 5 * 1000
-_LYRIC_WATCH_MS = 30 * 1000
 
 # Asset ids in picUrl look like /109951171335301580.jpg -- digits only, long
 # enough to not collide with the random-looking prefix segment.
@@ -199,7 +198,12 @@ class NeteaseSource(MetadataSource):
             return None
 
         now_ms = int(time.time() * 1000)
-        if not playing and not self._player_running():
+        # Independent of `playing`. That flag comes from the audio-session graph,
+        # which counts ANY whitelisted player -- start VLC and this guard used to
+        # switch itself off, leaving NetEase's last history row on screen as if
+        # it were the track playing. A closed NetEase means its caches are
+        # leftovers no matter who else is making noise.
+        if not self._player_running():
             if now_ms - playtime > _PLAYER_CLOSED_GRACE_MS:
                 # The player is gone, so its caches now describe a session that
                 # has ended; reporting them would be showing a dead track.
@@ -326,8 +330,9 @@ class NeteaseSource(MetadataSource):
         * the payload changes  -> that is the new song's lyric, take it
         * it has not changed  -> still inside the grace window, keep showing
           the previous song's lyric so the display does not flicker
-        * grace exhausted      -> this song has no cached lyric, show none,
-          then keep watching a little longer in case it arrives late
+        * grace exhausted      -> this song has no cached lyric, show none; a
+          late arrival is still picked up by the entry-change check, which is
+          independent of the grace clock
         """
         if not self._temp.is_file():
             return []
@@ -354,11 +359,15 @@ class NeteaseSource(MetadataSource):
         elapsed = (now - self._switch_at) * 1000
         if elapsed < _LYRIC_GRACE_MS:
             return self._lyrics
-        if elapsed < _LYRIC_GRACE_MS + _LYRIC_WATCH_MS:
-            # No lyric for this song, but the fetch may still be in flight.
-            self._switch_at = now
-            return []
-        self._switch_at = None
+        # Past the grace window the previous song's words never come back. A late
+        # fetch is still picked up: the entry-change check above reads only
+        # `newest` and fires whenever Temp finally gains a row.
+        #
+        # This branch used to re-arm itself (`self._switch_at = now`) to keep
+        # watching for a slow fetch. Re-arming dropped `elapsed` back under the
+        # grace threshold on the very next poll, so the song before this one
+        # cycled back in every ~6s and never resolved. A deterministic replay
+        # measured 28 of the first 40 polls returning the stale lyric.
         return []
 
     def _load_lyrics(self, entry: Optional[str]) -> list:
