@@ -45,6 +45,94 @@ reference viewport did not take effect, close stray Edge windows and re-run —
 that check exists because the window size silently drifted and every pixel
 threshold became meaningless.
 
+## Why the verifiers look the way they do
+
+This is the reasoning the README deliberately does not carry. If you are about to
+change what a verifier checks, read this first.
+
+### Why there is an API check at all
+
+Rendering checks and interface checks are orthogonal. A button can be drawn
+perfectly and still do nothing.
+
+That is not hypothetical. `d47f15c` (2026-09-27) turned `_read_state` from a
+module function into a `DeviceWorker` method and missed the call sites in four
+module-level helpers. Every control route answered 503 for three days while all
+visual checks stayed green — the buttons looked exactly right and simply did
+nothing when pressed. The first version of `verify-api.ps1` caught both 503s on
+its initial run.
+
+It exercises writes idempotently: read the current volume, write the same value
+back. That really traverses the device layer while changing nothing on the
+machine, and `finally` restores regardless. It also checks the rejections —
+`{"value":"loud"}` must be 400, never 500, because a 500 means validation was
+removed and the request reached the device before failing.
+
+### Why the geometry check pins its viewport
+
+`verify-disc.ps1` kills any old browser session, opens a fresh one, resizes to
+1280x900, and then **asserts that `innerWidth/innerHeight` actually took**.
+
+Not asserting this is how the baseline drifts. A reused session clamps
+`setViewportSize` to whatever its window happens to be: the same request for
+1280x900 came back as 1280x720, which measured a 210px disc when the script
+believed it had a 288px one. Every pixel threshold below became meaningless
+while the run still reported success.
+
+The read-back assertion then caught its own author. The resize originally read
+`"$RefViewport[0]"` — and **PowerShell does not index an array inside an
+interpolated string**, so that expanded to the literal `"1280 900[0]"`. The
+command failed silently, the viewport never moved, and nothing said so. Hence
+scalars `RefW` / `RefH`, and a read-back for anything that sets up the
+environment.
+
+### Tolerance comes from the measured distribution
+
+The disc-centroid ceiling is 0.5px, taken from three runs at the pinned window
+(0.16, 0.27, 0.31px). That spread is not pixel noise — an ~870px circumference
+would average it to hundredths — it is the artwork being slightly off-balance as
+it turns, which is inherent to the content. The old 1.0px ceiling passed a real
+half-pixel regression; 0.3px flaked on a healthy page.
+
+### Every assertion is reverse-validated
+
+An assertion nobody has seen fail is not known to work. Each of these was
+provoked and confirmed to go red before being trusted:
+
+| Provocation | Caught by | Exit |
+| --- | --- | --- |
+| lyric window 2 rows -> 3 | row-height assertion + 5px overflow at 360x640 | 1 |
+| artwork label 70% -> 40% | `0.4 (want 0.70 +/-0.02)` | 1 |
+| glass plate circle -> square | `border-radius 12px` | 1 |
+
+When you add an assertion, do the same: break the invariant, confirm the script
+fails, restore. A number that has never gone red is decoration.
+
+### What the disc check actually measures
+
+Two unrelated causes make a centred record *look* off-centre, and geometry alone
+only sees one of them.
+
+- **Geometry** — differencing a frame against a baseline captured with the disc
+  hidden; the disc mask must be a circle of constant size whose centre lands on
+  the plate centre in every sampled phase. Healthy: under 0.2px.
+- **Perceived offset** — the disc is dead centre but appears to slide, because an
+  asymmetric `box-shadow` rides the rotation and orbits the dark mass once per
+  turn. Asserted twice: statically, every shadow layer on a rotating element must
+  have zero x/y offset; dynamically, the shadow centroid must stay put across
+  phases. The old implementation drifted 40px.
+- **Picture disc** — artwork concentric with the record, in phase, diameter ratio
+  inside 0.30-0.85, and record `opacity` at 1. Break any one and the grooves get
+  covered by the artwork again.
+- **Sheen symmetry** — luminance sampled in 72 angular bins around the exposed
+  groove ring; opposite bins must differ by under 6/255. A single-arc sheen
+  measures ~25. Compare per-bin *means*, not pixel sums — bins hold unequal pixel
+  counts, so summing compares population rather than brightness.
+- **Pinned ratios and layout** — plate `border-radius: 50%`, label 70% +/-0.02 of
+  the plate, glass rim 1%-4% of plate width, lyric window exactly two rows and
+  centred per line, transport keys at least 44pt, and no page overflow at any of
+  eight viewports from 360x640 to 1920x1080.
+
 ## Invariants
 
 ### The height budget is a coupled pair
