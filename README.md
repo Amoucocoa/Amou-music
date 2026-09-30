@@ -11,6 +11,12 @@
 > 屏幕上、工作室、供应商网络这类场合下请不要开。只想自己用，启动时加 `--host 127.0.0.1` 就只能本机访问。
 > 更多见 [SECURITY.md](.github/SECURITY.md)。
 
+<p align="center">
+  <img src="docs/images/main-phone-dark.webp" width="270" alt="暗色主界面" />
+  &nbsp;&nbsp;
+  <img src="docs/images/main-phone.webp" width="270" alt="浅色主界面" />
+</p>
+
 ---
 
 ## 快速开始
@@ -25,6 +31,10 @@
 想撤销：`netsh advfirewall firewall delete rule name="Amou Music Remote"`。
 
 ---
+
+<p align="center">
+  <img src="docs/images/main-desktop.webp" width="720" alt="桌面视角" />
+</p>
 
 ## 能做什么
 
@@ -55,6 +65,12 @@
 宽限一满即恒空，**不会回弹**。迟到的歌词由条目变更接住。
 
 **歌词固定两行**（正在唱的和下一行），**长按歌词卡可展开全曲**。
+
+<p align="center">
+  <img src="docs/images/lyrics-expanded.webp" width="440" alt="长按展开后的全曲歌词" />
+  &nbsp;&nbsp;
+  <img src="docs/images/settings.webp" width="440" alt="设置面板" />
+</p>
 
 **播放状态图标只认白名单里的播放器。** 控制走全局媒体键，任何播放器都按得动；
 但音频会话图是**全机器**的——语音助手、模拟器、游戏只要有一个在发声，早期实现会把图标永久锁在「暂停」。
