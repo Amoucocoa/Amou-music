@@ -2,6 +2,8 @@
 
 [![verify](https://github.com/Amoucocoa/Amou-music/actions/workflows/verify.yml/badge.svg)](https://github.com/Amoucocoa/Amou-music/actions/workflows/verify.yml)
 
+> **本项目的全部代码由 AI 编码代理生成，没有一行是人写的。**设计决策由人做，实现由 AI 落地，验证脚本与文档同样是。欢迎带着怀疑来读。
+
 **Windows 独占**。在手机、平板或同一 WiFi 下的任意设备上，用浏览器控制这台电脑的**系统媒体会话**和**主输出音量**。
 零 Web 框架，前端全部内嵌在一个 html 里，不引用任何 CDN。
 
