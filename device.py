@@ -80,6 +80,12 @@ _STOP = object()
 # timeout=2.0 each, plus COM.
 _JOB_TIMEOUT_S = 10.0
 
+# Importing comtypes and running the first CoInitialize is fast, but a wedged
+# import (a half-installed pywin32, a locked AV) used to leave __init__ parked
+# on _ready.wait() forever -- the process started, printed nothing, and served
+# no requests. The constructor now has a deadline and reports the cause.
+_INIT_TIMEOUT_S = 15.0
+
 
 class DeviceError(RuntimeError):
     """The default audio endpoint could not be reached (unplugged, disabled...)."""
@@ -91,12 +97,21 @@ class DeviceWorker:
     def __init__(self) -> None:
         self._queue: "queue.Queue" = queue.Queue()
         self._ready = threading.Event()
+        self._init_error: BaseException | None = None
         self._thread = threading.Thread(
             target=self._run, name="device-worker", daemon=True
         )
         self._thread.start()
         # Block until COM is live so the first request never races the import.
-        self._ready.wait()
+        if not self._ready.wait(_INIT_TIMEOUT_S):
+            raise DeviceError(
+                "设备线程启动超时（%gs）：COM 初始化没有完成。"
+                "请关闭占用音频设备的程序后重试。" % _INIT_TIMEOUT_S
+            )
+        if self._init_error is not None:
+            raise DeviceError(
+                "设备线程初始化失败：%s" % (self._init_error,)
+            ) from self._init_error
         # Metadata reads touch the player's own sqlite caches and keep a
         # little state (which lyric belongs to which track, how long we have
         # been paused). Both are only coherent on one thread, so the source
@@ -105,9 +120,16 @@ class DeviceWorker:
 
     # -- worker thread ----------------------------------------------------
     def _run(self) -> None:
-        import comtypes
+        try:
+            import comtypes
 
-        comtypes.CoInitialize()
+            comtypes.CoInitialize()
+        except BaseException as exc:  # noqa: BLE001 - reported via _init_error
+            # _ready must be set on the failure path too: the constructor is
+            # parked on it, and an exception here would never reach anyone.
+            self._init_error = exc
+            self._ready.set()
+            return
         self._ready.set()
         while True:
             job = self._queue.get()
@@ -117,8 +139,16 @@ class DeviceWorker:
             func, args, slot = job
             try:
                 slot["value"] = func(*args)
-            except BaseException as exc:  # forwarded verbatim to the caller
-                slot["error"] = exc
+            except BaseException as exc:  # classify before forwarding
+                # BaseException (KeyboardInterrupt, SystemExit, a bare
+                # GeneratorExit) would be re-raised on the HTTP request thread
+                # and skip _device_call's handlers entirely -- the socket is
+                # reset with no response body. submit() turns those into
+                # DeviceError so they still surface as 503.
+                slot["error"] = (
+                    exc if isinstance(exc, Exception)
+                    else DeviceError("设备线程发生非预期中断：%r" % (exc,))
+                )
             finally:
                 slot["event"].set()
 
@@ -129,7 +159,13 @@ class DeviceWorker:
         if not slot["event"].wait(_JOB_TIMEOUT_S):
             raise DeviceError("device worker did not answer in time")
         if "error" in slot:
-            raise slot["error"]
+            # _run already normalised BaseException, so this only ever
+            # re-raises Exception subclasses. Guard anyway: a BaseException
+            # escaping here would bypass the handler's 503 mapping.
+            error = slot["error"]
+            if isinstance(error, Exception):
+                raise error
+            raise DeviceError("设备线程发生非预期中断：%r" % (error,)) from error
         return slot["value"]
 
     def stop(self) -> None:
@@ -169,13 +205,13 @@ class DeviceWorker:
         return self.submit(self._metadata.cover_bytes, song_id)
 
     def set_volume(self, value: float) -> dict:
-        return self.submit(_set_volume, value)
+        return self.submit(_set_volume, value, self._read_state)
 
     def nudge_volume(self, delta_points: float) -> dict:
-        return self.submit(_nudge_volume, delta_points)
+        return self.submit(_nudge_volume, delta_points, self._read_state)
 
     def set_mute(self, muted: bool) -> dict:
-        return self.submit(_set_mute, muted)
+        return self.submit(_set_mute, muted, self._read_state)
 
     def playback(self, action: str) -> dict:
         return self.submit(_playback, action)
@@ -184,7 +220,7 @@ class DeviceWorker:
         return self.submit(_list_outputs)
 
     def set_output(self, device_id: str) -> dict:
-        return self.submit(_set_output, device_id)
+        return self.submit(_set_output, device_id, self._read_state)
 
 
 # -- implementations, all executed on the worker thread -------------------
@@ -320,7 +356,7 @@ def _list_outputs() -> dict:
     return {"outputs": outputs, "current": current}
 
 
-def _set_output(device_id: str) -> dict:
+def _set_output(device_id: str, read_state) -> dict:
     """Move the default render endpoint.
 
     All three roles are reassigned. Windows keeps a separate default per
@@ -345,30 +381,30 @@ def _set_output(device_id: str) -> dict:
     except Exception as exc:
         raise DeviceError("切换输出设备失败，可能被系统策略阻止") from exc
 
-    return _read_state()
+    return read_state()
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
-def _set_volume(value: float) -> dict:
+def _set_volume(value: float, read_state) -> dict:
     dev = _require_device()
     dev.volume_percent = _clamp(value, 0.0, 1.0) * 100
-    return _read_state()
+    return read_state()
 
 
-def _nudge_volume(delta_points: float) -> dict:
+def _nudge_volume(delta_points: float, read_state) -> dict:
     """Relative change, expressed in percentage points (5 == 5%)."""
     dev = _require_device()
     dev.volume_percent = _clamp(dev.volume_percent + delta_points, 0.0, 100.0)
-    return _read_state()
+    return read_state()
 
 
-def _set_mute(muted: bool) -> dict:
+def _set_mute(muted: bool, read_state) -> dict:
     dev = _require_device()
     dev.EndpointVolume.SetMute(1 if muted else 0, None)
-    return _read_state()
+    return read_state()
 
 
 def _send_media_key(vk: int) -> None:

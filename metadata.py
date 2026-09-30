@@ -135,10 +135,17 @@ class NeteaseSource(MetadataSource):
         self._lyrics: list = []
         self._switch_at: Optional[float] = None
 
-        # Playback position, reconstructed from the play timestamp.
+        # Playback position, reconstructed from the play timestamp. The wall
+        # clock is sampled ONCE per track (see _rebase_position) and the
+        # monotonic clock carries it from there; _pause_started is therefore a
+        # monotonic stamp, not a wall-clock one.
         self._paused_total_ms = 0
         self._pause_started: Optional[float] = None
         self._duration_ms = 0
+        self._pos_anchor_mono: Optional[float] = None
+        self._pos_anchor_playtime: Optional[int] = None
+        self._pos_anchor_ms = 0
+        self._pos_frozen_ms = 0
 
         # Artwork lookups cost ~16ms (a scan of 6.8k rows), so they are cached
         # per song instead of per poll.
@@ -216,9 +223,20 @@ class NeteaseSource(MetadataSource):
 
         duration_ms = int(info.get("duration") or 0)
         self._duration_ms = duration_ms
-        self._update_position(playing, now_ms)
-        lyrics = self._resolve_lyrics(playtime, time.monotonic())
-        cover_path, _cover_type, cover_token = self._cover_for(song_id, info)
+        self._update_position(playing)
+        # Degrade per part, not all-or-nothing. A locked Temp db or a renamed
+        # Statics file must cost us the lyrics or the artwork, never the title
+        # we already read: returning None here snaps the UI back to the
+        # generic session label, which reads as a bug rather than a missing
+        # feature. Only the Library read above may fail the whole card.
+        try:
+            lyrics = self._resolve_lyrics(playtime, time.monotonic())
+        except Exception:
+            lyrics = []
+        try:
+            cover_path, _cover_type, cover_token = self._cover_for(song_id, info)
+        except Exception:
+            cover_path, cover_token = None, None
 
         return TrackInfo(
             song_id=song_id,
@@ -258,9 +276,9 @@ class NeteaseSource(MetadataSource):
         Returns ``(path, content_type, token)``, or ``(None, None, None)``
         when the player has not cached this album's art.
         """
-        cached = self._cover_cache.get(song_id)
-        if cached is not None:
-            return cached
+        # A miss is cached too, not only a hit -- see _remember_cover.
+        if song_id in self._cover_cache:
+            return self._cover_cache[song_id]
 
         pic_url = ""
         if info is not None:
@@ -274,7 +292,7 @@ class NeteaseSource(MetadataSource):
 
         match = _PIC_ID_RE.search(pic_url)
         if not match or not self._statics.is_file():
-            return None, None, None
+            return self._remember_cover(song_id, (None, None, None))
         asset_id = match.group(1)
 
         # The player caches several sizes of the same asset; the largest one
@@ -285,22 +303,41 @@ class NeteaseSource(MetadataSource):
             (f"%{asset_id}%",),
         )
         if not row:
-            return None, None, None
+            return self._remember_cover(song_id, (None, None, None))
         path = self._statics.parent / row[0]
         if not path.is_file():
-            return None, None, None
+            return self._remember_cover(song_id, (None, None, None))
 
-        content_type = _image_type(path.read_bytes()[:16])
+        # Only the magic bytes are needed; read_bytes() would pull the whole
+        # 80KB file in just to slice off the first 12. Same 16 bytes, same
+        # verdict, on every cache miss.
+        try:
+            with path.open("rb") as handle:
+                content_type = _image_type(handle.read(16))
+        except OSError:
+            return self._remember_cover(song_id, (None, None, None))
         if content_type is None:
-            return None, None, None
+            return self._remember_cover(song_id, (None, None, None))
         # The cached file's stem is the asset hash: same song, same bytes, so
         # the client can key its <img> off it instead of re-fetching.
-        token = path.stem
-        self._cover_cache[song_id] = (path, content_type, token)
-        if len(self._cover_cache) > 32:
-            for stale in list(self._cover_cache)[:16]:
-                self._cover_cache.pop(stale, None)
-        return path, content_type, token
+        # The cached file's stem is the asset hash: same song, same bytes, so
+        # the client can key its <img> off it instead of re-fetching.
+        return self._remember_cover(song_id, (path, content_type, path.stem))
+
+    def _remember_cover(self, song_id: int, value: tuple) -> tuple:
+        """Cache a cover lookup -- "no artwork" included -- under a size cap.
+
+        Only hits used to be stored, so a song whose art was never cached
+        re-ran the ~16ms scan of 6.8k Statics rows on EVERY 2s poll. That runs
+        on the same serial worker queue as the volume fader, which is how a
+        missing cover turns into a sluggish volume slider.
+        """
+        cache = self._cover_cache
+        cache[song_id] = value
+        if len(cache) > 32:
+            for stale in list(cache)[:16]:
+                cache.pop(stale, None)
+        return value
     def _pic_url_for(self, song_id: int) -> str:
         if not self._library.is_file():
             return ""
@@ -382,7 +419,48 @@ class NeteaseSource(MetadataSource):
         return parse_lyrics(raw)
 
     # -- position --------------------------------------------------------
-    def _update_position(self, playing: bool, now_ms: int) -> None:
+    def _rebase_position(self) -> None:
+        """Sample the wall clock once per track; let the monotonic clock carry it.
+
+        `playtime` is a wall-clock timestamp written by the player, so the only
+        way to know how far into the track we are is to compare it against
+        `time.time()` -- but that comparison has to happen ONCE per track.
+        Doing it on every sample meant an NTP correction, or a user nudging the
+        clock, moved the cursor by the size of the jump with no way back: the
+        error landed in `_paused_total_ms` and survived until the next track
+        change, stranding the lyric highlight on line 1 for the whole song.
+
+        Past this point the position is a monotonic delta minus accumulated
+        pause, so a wall-clock step is invisible.
+        """
+        if self._song_playtime is None:
+            # Nothing to measure yet. read() runs this before the history row
+            # has been attributed, so a missing anchor here is normal, not an
+            # error; the next call re-bases once there is a track.
+            return
+        self._pos_anchor_mono = time.monotonic()
+        self._pos_anchor_playtime = self._song_playtime
+        # The one place the raw difference may legitimately be negative: the
+        # player's clock can sit slightly ahead of ours. Clamping here and
+        # nowhere else keeps a later sign error from being hidden by a floor.
+        self._pos_anchor_ms = max(0, int(time.time() * 1000) - self._song_playtime)
+        self._pos_frozen_ms = self._pos_anchor_ms
+
+    def _elapsed_ms(self) -> int:
+        """Milliseconds into the track, derived without the wall clock."""
+        if (self._pos_anchor_mono is None
+                or self._pos_anchor_playtime != self._song_playtime):
+            # New track, or first sample of this one: re-read the wall clock.
+            self._rebase_position()
+        if self._pause_started is not None:
+            # Paused. The cursor is where it stopped, not a value recomputed
+            # from a clock that may have moved since.
+            return self._pos_frozen_ms
+        return (self._pos_anchor_ms
+                + int((time.monotonic() - self._pos_anchor_mono) * 1000)
+                - self._paused_total_ms)
+
+    def _update_position(self, playing: bool) -> None:
         """Accumulate paused time so the position estimate stops drifting.
 
         There is no local position source -- playingCount.playDuration is a
@@ -390,13 +468,30 @@ class NeteaseSource(MetadataSource):
         the play timestamp. Pausing freezes it; resuming continues from where
         it stopped. Seeking inside the player cannot be observed, so the value
         does drift; it is re-based on the next track change.
+
+        `_pause_started` is a MONOTONIC stamp because it is only ever
+        differenced against another monotonic reading. It used to be a wall
+        stamp, so a clock change during a pause was baked into
+        `_paused_total_ms` permanently.
         """
+        if self._song_playtime is None:
+            return
+        if (self._pos_anchor_mono is None
+                or self._pos_anchor_playtime != self._song_playtime):
+            self._rebase_position()
+        now = time.monotonic()
         if not playing:
             if self._pause_started is None:
-                self._pause_started = now_ms / 1000.0
+                self._pause_started = now
+                # Freeze where the cursor actually is. Recomputing it later
+                # would need a second wall-clock sample, which is the thing
+                # this whole arrangement exists to avoid.
+                self._pos_frozen_ms = (self._pos_anchor_ms
+                                       + int((now - self._pos_anchor_mono) * 1000)
+                                       - self._paused_total_ms)
             return
         if self._pause_started is not None:
-            self._paused_total_ms += int(now_ms / 1000.0 - self._pause_started) * 1000
+            self._paused_total_ms += int((now - self._pause_started) * 1000)
             self._pause_started = None
 
     def position_ms(self) -> int:
@@ -410,11 +505,7 @@ class NeteaseSource(MetadataSource):
         """
         if self._song_playtime is None:
             return 0
-        now = time.time() * 1000
-        offset = self._paused_total_ms
-        if self._pause_started is not None:
-            offset += int(now - self._pause_started * 1000)
-        position = max(0, int(now - self._song_playtime - offset))
+        position = self._elapsed_ms()
         if self._duration_ms:
             position = min(position, self._duration_ms)
         return position

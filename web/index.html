@@ -73,7 +73,6 @@
     --accent-s:  85%;
     --accent-l:  29%;
     --tint:      hsl(var(--accent-h) var(--accent-s) var(--accent-l));
-    --tint-soft: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.14);
     --green:     hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) + 8%));
     --orange:    #C97A16;
     --red:       #C8362C;
@@ -144,8 +143,8 @@
     --chip-hint: rgba(255, 255, 255, 0.10);
     --sleeve:    rgba(255, 255, 255, 0.10);
 
-    /* Only the three components are overridden; --tint / --tint-soft /
-       --green re-derive from them because custom properties substitute at
+    /* Only the three components are overridden; --tint and --green re-derive
+       from them because custom properties substitute at
        computed-value time on the same element.
        Defaults: hsl(140, 74%, 53%) = #2EE06A. */
     --accent-h:  140;
@@ -287,6 +286,11 @@
     white-space: nowrap;
     border: 0;
   }
+  /* Pinned to its containing block's origin instead of its static position at
+     the end of the .controls column: an absolutely positioned box still counts
+     toward the scrollable overflow region, and 1px of that at the bottom of the
+     column would surface as a stray scrollbar. */
+  #lyricAnnounce { top: 0; left: 0; }
 
   /* --- Water backdrop ---------------------------------------------------
      feTurbulence builds a fractal noise field ONCE. feOffset then slides that
@@ -295,7 +299,7 @@
      Translating a smooth noise field is what produces continuous refractive
      drift rather than a pattern sliding on a conveyor belt.
 
-     A slow CSS transform on the wrapper adds parallax on top. The layer is
+     A slow GSAP transform on the wrapper adds parallax on top. The layer is
      fixed and oversized, so drift can never expose an edge; it sits at
      z-index: -1 and therefore can never land on the volume readout.     */
   .water-layer {
@@ -582,8 +586,13 @@
   /* --- Lyrics --------------------------------------------------------------
      A two-line window: the line being sung, and the one after it. The whole
      lyric stays in the DOM - the card is a viewport onto it, not a filter -
-     so a screen reader still walks the song top to bottom in order and the
-     visual strip can never desynchronise from what is announced.
+     so the visible strip can never desynchronise from the lyric itself.
+
+     The card is role="button", which makes its descendants presentational, so
+     those per-line <p>s and their aria-current never reach the accessibility
+     tree. The aria-live mirror SIBLING to the card is what announces the
+     current line; nesting it inside the button would inherit the same
+     presentation and stay silent.
 
      The card is EXACTLY two rows tall and never scrolls, because a lyric
      surface that reflows while music plays is worse than one that shows less.
@@ -627,7 +636,7 @@
     overscroll-behavior: contain;
     cursor: zoom-out;
     border-radius: 14px;
-    background: var(--lyric-sheet, rgba(255, 255, 255, 0.34));
+    background: rgba(255, 255, 255, 0.34);
     -webkit-backdrop-filter: saturate(180%) blur(18px);
     backdrop-filter: saturate(180%) blur(18px);
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.22);
@@ -648,7 +657,7 @@
   }
   .lyric-card.is-expanding { animation: lyric-open 0.28s var(--ease); }
   .lyric-card:focus-visible {
-    outline: 2px solid var(--accent, currentColor);
+    outline: 2px solid var(--tint);
     outline-offset: 3px;
     border-radius: 14px;
   }
@@ -1505,6 +1514,10 @@
          aria-label="歌词，长按展开" aria-expanded="false" hidden>
       <div class="lyric-track" id="lyricTrack"></div>
     </div>
+    <!-- Sibling of the card, not a child: role="button" makes descendants
+         presentational, so an aria-live nested inside it would be dropped from
+         the accessibility tree along with the lyric lines. -->
+    <p class="sr-only" id="lyricAnnounce" aria-live="polite" aria-atomic="true"></p>
 
     <div class="track-block">
       <div class="track-text">
@@ -1887,6 +1900,7 @@
         artCover: document.getElementById('artCover'),
         lyricCard: document.getElementById('lyricCard'),
         lyricTrack: document.getElementById('lyricTrack'),
+        lyricAnnounce: document.getElementById('lyricAnnounce'),
         consoleToast: document.getElementById('consoleToast'),
         toastText: document.getElementById('toastText'),
         toastRetryBtn: document.getElementById('toastRetryBtn')
@@ -1994,14 +2008,20 @@
     renderCover(track) {
       const img = this.els.artCover;
       const frame = this.els.artFrame;
+      /* The FRAME is the role="img", so the inner <img>'s alt never names it:
+         a screen reader kept announcing "no cover" while artwork was on screen.
+         This label is the only channel that can, so it is written here. */
+      const bareLabel = '当前播放内容，暂无封面';
       if (!track || !track.has_cover) {
         frame.classList.remove('has-cover');
         img.removeAttribute('src');
+        frame.setAttribute('aria-label', bareLabel);
         return;
       }
       const url = '/api/cover?song_id=' + encodeURIComponent(track.song_id);
       if (img.getAttribute('src') === url) return;
       img.alt = track.title + (track.artist ? ' - ' + track.artist : '');
+      frame.setAttribute('aria-label', '当前播放：' + track.title);
       img.onerror = () => {
         // Reassigning `src` aborts the previous request, but the abort still
         // fires `error` -- at whatever handler is installed NOW, which is the new
@@ -2012,6 +2032,7 @@
         // 404 / no cached art: fall back to the disc for this track.
         frame.classList.remove('has-cover');
         img.removeAttribute('src');
+        frame.setAttribute('aria-label', bareLabel);
       };
       img.onload = () => {
         if (img.getAttribute('src') !== url) return;
@@ -2035,6 +2056,7 @@
         track.textContent = '';
         this.lyricNodes = [];
         this.lyricIndex = -1;
+        this.els.lyricAnnounce.textContent = '';
         return;
       }
       card.hidden = false;
@@ -2131,6 +2153,11 @@
         next.classList.add('is-current');
         next.setAttribute('aria-current', 'true');
       }
+      /* aria-atomic, so re-singing the same line stays silent and a new line is
+         read whole. Nothing is announced before the first timestamp is passed
+         (found === -1), which is correct -- there is no line to say yet. */
+      this.els.lyricAnnounce.textContent =
+        (found >= 0 && lines[found]) ? lines[found][1] : '';
       this.seekToLine(Math.max(found, 0));
     }
 
@@ -2291,6 +2318,16 @@
           try {
             await AudioRemoteAPI.playback(action);
           } catch (err) {
+            /* The key never left, so the seeded reading is a guess the device
+               never confirmed. Drop BOTH halves of the debounce back to the
+               last trusted value: leaving playRaw on the guess lets the next
+               agreeing poll ratify a flip that never happened, and leaving the
+               streak at 1 lets the stale seed survive a full POLL_MAX_MS
+               backoff with nothing to re-decide it. */
+            if (action === 'play_pause') {
+              this.playRaw = this.playing;
+              this.playStreak = 0;
+            }
             this.showToast(err.message || '发送按键失败', () => this.coordinator.pollNow());
           }
         });

@@ -39,6 +39,11 @@ MAX_BODY_BYTES = 4096
 class Handler(BaseHTTPRequestHandler):
     server_version = "AmouRemote/1.0"
     protocol_version = "HTTP/1.1"
+    # Keep-alive is required for the 2s poll to be cheap, but without an idle
+    # bound every phone holds a thread (daemon_threads, so they die with the
+    # process) until the process exits. 30s is far above the poll interval and
+    # far below any real phone's patience.
+    timeout = 30
 
     # -- plumbing ---------------------------------------------------------
     def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:

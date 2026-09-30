@@ -37,7 +37,16 @@ param(
   [string]$Url = 'http://127.0.0.1:8765/',
   [int]$Frames = 4,
   [int]$IntervalMs = 1000,
-  [double]$MaxDiscOffsetPx = 1.0,
+  # Observed across repeated runs at the pinned reference window (disc r=138px):
+  # 0.16, 0.27, 0.31px. The spread is not pixel noise - a ~870px circumference
+  # would average that away to hundredths of a pixel - it is the artwork itself
+  # being slightly off-balance as it turns, which is inherent to the content.
+  # So the ceiling is set from the observed distribution, not from a wish:
+  #   1.0px (the old value) passed a real half-pixel regression;
+  #   0.3px flaked on a healthy page.
+  # 0.5px still catches the failure this check exists for - an asymmetric shadow
+  # orbited the disc by 15-40px, two orders of magnitude above this.
+  [double]$MaxDiscOffsetPx = 0.5,
   [double]$MaxShadowWanderPx = 6.0,
   # Max luminance gap between opposite points of the groove ring, 0-255.
   # A single-arc sheen measures ~28; a 180deg-periodic one measures < 3.
@@ -48,7 +57,15 @@ param(
 
 # Reference window for the geometry sections. Wide enough that the disc sits far
 # above the sub-pixel noise floor, short enough to need no scrolling.
-$RefViewport = @(1280, 900)
+#
+# Scalars, not an array, on purpose. PowerShell does not index an array inside an
+# interpolated string: "$arr[0]" expands the WHOLE array and appends a literal
+# "[0]". The resize was therefore being called with the argument "1280 900[0]",
+# failed silently, and left the viewport at the browser default - so the run
+# measured a 210px disc while believing it had a 288px one. The viewport is
+# asserted below precisely because a silent no-op here is invisible.
+$RefW = 1280
+$RefH = 900
 
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -102,13 +119,48 @@ $work = Join-Path ([System.IO.Path]::GetTempPath()) ('verify-disc-' + [guid]::Ne
 try {
   Write-Host "`nDisc centring verification - $Url" -ForegroundColor Cyan
 
-  Invoke-Cli @('goto', $Url) | Out-Null
+  # Always start from a fresh browser. Two reasons, both learned the hard way:
+  #   - the session expires on idle, so a cold run died on "Browser 'default' is
+  #     not open";
+  #   - a REUSED session clamps setViewportSize to whatever its window happens to
+  #     be, which silently measured a 212px disc where a cold one measures 288px.
+  #     Same page, same script, different answer.
+  # A cold `open` honours the requested viewport exactly (verified at both 1280x900
+  # headless and headed), so the cost is a few seconds and the measurements become
+  # comparable between runs.
+  Invoke-Cli @('kill-all') | Out-Null
+  # kill-all only reaps Playwright's own daemons. If a previous run was
+  # interrupted, orphaned msedge processes survive and silently clamp the next
+  # window: the same request for 1280x900 came back 1280x720, which measured a
+  # 210px disc instead of a 288px one and made every pixel threshold meaningless.
+  # Match on the command line rather than the process name, so a browser the user
+  # actually has open is never touched - theirs has no 'playwright' in it.
+  try {
+    Get-CimInstance Win32_Process -Filter "Name='msedge.exe'" |
+      Where-Object { $_.CommandLine -match 'playwright' } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  } catch { }
+  Start-Sleep -Seconds 1
+  Invoke-Cli @('open', '--browser', 'msedge', $Url.TrimEnd('/')) | Out-Null
+  Start-Sleep -Seconds 3
   # Pin the window before measuring anything. The session keeps whatever size it
   # was left at, so the pixel section reported a different sleeve diameter from
   # run to run (150px one run, 212px the next) with no change to the page. A
   # geometric assertion whose baseline moves is not an assertion.
-  Invoke-Cli @('resize', "$RefViewport[0]", "$RefViewport[1]") | Out-Null
+  Invoke-Cli @('resize', "$RefW", "$RefH") | Out-Null
   Start-Sleep -Seconds 3
+  # setViewportSize is a REQUEST. In a headed browser it is clamped by the real
+  # OS window, so a fresh session silently measures a smaller disc than a warm
+  # one - which is exactly the drifting baseline this line exists to kill, one
+  # level deeper. Do not measure until the viewport is confirmed.
+  $vp = Invoke-Eval "function(){return JSON.stringify({w:window.innerWidth,h:window.innerHeight});}"
+  Assert-That ($vp.w -eq $RefW -and $vp.h -eq $RefH) `
+    'the reference viewport actually took effect' `
+    "asked ${RefW}x${RefH}, got $($vp.w)x$($vp.h) - something is clamping the window; close stray Edge windows and re-run"
+  if ($vp.w -ne $RefW -or $vp.h -ne $RefH) {
+    Write-Host "  [ABORT] measurements below would not be comparable." -ForegroundColor Red
+    exit 1
+  }
 
   Write-Host "`n1. Transform contract" -ForegroundColor Cyan
   $probe = Invoke-Eval $JS_PROBE
@@ -143,18 +195,38 @@ try {
   # size-dependent - 27 grooves on a 360px phone, 57 on a 1920px monitor - so
   # the same record read as a different material at every breakpoint.
   # Isolate just the repeating-radial-gradient layer, then read its stops.
+  # Take ONLY the repeating-radial-gradient(...) value, not everything from its
+  # first character to the end of the declaration. The old Substring($at) plus
+  # "last percentage in the string" happened to be right because this layer is
+  # declared last; append any later layer containing a percentage and the number
+  # would silently come from the wrong layer. The stop colours are themselves
+  # parenthesised (rgba(...)), so the scan has to balance them.
   $at = $probe.vinyl.bg.IndexOf('repeating-radial-gradient')
-  $grooveBody = if ($at -ge 0) { $probe.vinyl.bg.Substring($at) } else { '' }
+  $grooveBody = ''
+  if ($at -ge 0) {
+    $depth = 0
+    for ($i = $at; $i -lt $probe.vinyl.bg.Length; $i++) {
+      $ch = $probe.vinyl.bg[$i]
+      if ($ch -eq '(') { $depth++ }
+      elseif ($ch -eq ')') {
+        $depth--
+        if ($depth -eq 0) { $grooveBody = $probe.vinyl.bg.Substring($at, $i - $at + 1); break }
+      }
+    }
+  }
   $groovePct = [regex]::Matches($grooveBody, '(-?[\d.]+)%')
   $groovePx = [regex]::Matches($grooveBody, '(-?[\d.]+)px')
   $periodPct = if ($groovePct.Count -ge 2) { [double]$groovePct[$groovePct.Count - 1].Groups[1].Value } else { 0 }
   Assert-That ($periodPct -gt 0) `
     'groove pitch is radius-relative, not a fixed pixel count' `
     "groove layer = '$grooveBody'"
-  $periods = if ($periodPct -gt 0) { [Math]::Round(100 / $periodPct, 1) } else { 0 }
+  # `circle` with no explicit size ends at the farthest corner, so one percent of
+  # the gradient is 1.414 x one percent of the radius. Dividing by the raw number
+  # overstated the ring count by ~41%.
+  $periods = if ($periodPct -gt 0) { [Math]::Round(100 / ($periodPct * [Math]::Sqrt(2)), 1) } else { 0 }
   Assert-That ($periodPct -ge 2.0 -and $periodPct -le 5.0) `
     'groove pitch is in a readable range' `
-    "period $periodPct% of radius -> $periods periods per disc"
+    "period $periodPct% of the gradient -> $periods rings per disc (100 / ($periodPct x sqrt2))"
 
   # Picture-disc geometry: the artwork is a label printed ON the record, so it
   # must be concentric with the vinyl AND strictly smaller than it - otherwise
@@ -391,6 +463,10 @@ try {
       "$($o.over)px past the fold"
   }
 
+  # Put the window back before reporting, so the next run starts from the
+  # reference size instead of inheriting 1920x1080 from the last loop entry.
+  Invoke-Cli @('resize', "$RefW", "$RefH") | Out-Null
+
   Write-Host ''
   if ($script:Failures.Count -eq 0) {
     Write-Host "PASS - $script:Checks checks, worst disc offset $([Math]::Round($worst, 2))px" -ForegroundColor Green
@@ -412,7 +488,7 @@ finally {
   # Restore the live page: the run hid the artwork, so a reload is the only way
   # to hand back a page in the state the user actually sees.
   Invoke-Cli @('goto', $Url) | Out-Null
-  Invoke-Cli @('resize', "$RefViewport[0]", "$RefViewport[1]") | Out-Null
+  Invoke-Cli @('resize', "$RefW", "$RefH") | Out-Null
   if ([System.IO.Directory]::Exists($work)) {
     try { [System.IO.Directory]::Delete($work, $true) } catch { }
   }
