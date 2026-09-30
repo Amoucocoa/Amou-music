@@ -1,5 +1,7 @@
 # Amou Music · 局域网播放遥控器
 
+[![verify](https://github.com/Amoucocoa/Amou-music/actions/workflows/verify.yml/badge.svg)](https://github.com/Amoucocoa/Amou-music/actions/workflows/verify.yml)
+
 在手机、平板或同一 WiFi 下的任意设备上，用浏览器控制这台电脑的**系统媒体会话**和**主输出音量**。
 
 网易云、QQ 音乐、Spotify、浏览器播的视频……只要它在播，遥控器就能控制它——因为走的是 Windows 全局媒体键，而不是绑定某个播放器。

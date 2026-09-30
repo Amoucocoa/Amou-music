@@ -1,0 +1,57 @@
+# Verifies the parts of the project that can run without this machine.
+#
+# What this covers, and what it cannot:
+#   covered    - the lyric attribution state machine (pure logic) and a parse of
+#                every module
+#   NOT here   - verify-api.ps1 and verify-disc.ps1
+#
+# The two missing ones are not an oversight. server.py constructs DeviceWorker()
+# at startup, which initialises COM against the local audio stack, so a hosted
+# runner with no sound card cannot start the service at all - and both of those
+# scripts need a live service. The visual one additionally needs a browser.
+# Run them locally; see CONTRIBUTING.md.
+#
+# Linux is in the matrix on purpose: the state machine is platform-independent
+# logic, and proving it parses and passes there shows it is not accidentally
+# entangled with Windows-only behaviour. The project itself still only runs on
+# Windows.
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  logic:
+    name: state machine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Install the one runtime dependency the logic tests need
+        # Deliberately not requirements.txt: that pins pycaw and comtypes, which
+        # only exist for the device layer this job never touches.
+        run: python -m pip install --disable-pip-version-check "psutil>=5.9.0"
+
+      - name: Parse every module
+        run: python tools/verify-syntax.py
+
+      - name: Verify the lyric attribution state machine
+        run: python tools/verify-lyrics.py

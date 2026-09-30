@@ -20,12 +20,25 @@ administrator shell.
 
 ## Before you open a pull request
 
-Run all three. They are independent and each catches a different class of
-failure — visual, functional, and state-machine.
+CI runs on every push and pull request, but it can only cover part of this. It
+parses every module and runs the lyric state machine, on both Linux and Windows.
+It cannot run the other two, and that is not an oversight:
+
+> `server.py` constructs `DeviceWorker()` at startup, which initialises COM
+> against the local audio stack. A hosted runner has no sound card, so the
+> service will not start — and both remaining verifiers need a live service. The
+> visual one also needs a browser.
+
+So run the two it cannot, locally. All three are independent and each catches a
+different class of failure — functional, state-machine, and visual.
 
     pwsh -File tools/verify-api.ps1     # 16 checks, ~1s, no browser
     python tools/verify-lyrics.py       # 2 cases, ~1s, no browser
     pwsh -File tools/verify-disc.ps1    # 34 checks, needs Playwright CLI
+
+`verify-syntax.py` and `verify-lyrics.py` are the two CI runs; you can run them
+too. `verify-syntax.py` parses rather than imports on purpose — importing
+`device.py` would initialise COM.
 
 `verify-disc.ps1` starts its own browser session. If it reports that the
 reference viewport did not take effect, close stray Edge windows and re-run —
