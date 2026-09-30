@@ -89,6 +89,14 @@ the parallax, and both animations ran at 40s so it looked alive.
 If two things appear to fight over a property, one of them is already dead.
 Grep for the keyframe name before assuming a setting does nothing.
 
+This is also why the disc and its artwork are centred with `inset: 0` plus
+`margin: auto`, and never with `transform: translate(-50%, -50%)`. It is the
+tempting way to centre an absolutely-positioned element, and it silently works
+until the rotation tween starts writing the same property — at which point the
+element jumps and the geometry assertions start failing for reasons that look
+unrelated to CSS. The stylesheet must contribute nothing to `transform` on
+anything that turns.
+
 ### Groove pitch has a floor
 
 The pitch is a percentage of the radius (currently 2.4%), never a pixel count —
